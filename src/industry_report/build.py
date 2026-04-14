@@ -23,28 +23,45 @@ from .read_manual import (
     read_skills,
 )
 
+# Column rename map: API column names → report-friendly names
+OCCUPATION_COLUMN_MAP = {
+    "Occupation": "SOC",
+    "Area": None,  # drop
+    "ClassOfWorker": None,  # drop
+    "Jobs.2026": "2026 Jobs",
+    "Jobs.2029": "2029 Jobs",
+    "Openings.2026": "Avg. Annual Openings",
+    "Earnings.Percentile10.2024": "Entry Wage (P10)",
+    "Earnings.Percentile50.2024": "Median Hourly Wage",
+    "Earnings.Percentile90.2024": "Experienced Wage (P90)",
+}
+
+
+def _clean_occupation_df(df: pd.DataFrame, living_wage: float) -> pd.DataFrame:
+    """Rename columns, compute derived fields, add living wage flag."""
+    df = df.rename(columns=OCCUPATION_COLUMN_MAP)
+    cols_to_drop = [c for c in df.columns if c is None]
+    df = df.drop(columns=cols_to_drop, errors="ignore")
+
+    # Derived columns
+    if "2026 Jobs" in df.columns and "2029 Jobs" in df.columns:
+        df["2026-2029 Change"] = df["2029 Jobs"] - df["2026 Jobs"]
+        df["% Change"] = (df["2026-2029 Change"] / df["2026 Jobs"]).round(4)
+
+    if "Median Hourly Wage" in df.columns:
+        df["Below Living Wage"] = df["Median Hourly Wage"] <= living_wage
+
+    return df
+
 
 def _build_occupations_sheet(config: ReportConfig, occ_api: pd.DataFrame | None) -> pd.DataFrame | None:
     """Build the Occupational Employment table."""
-    # Try API first
     if occ_api is not None and not occ_api.empty:
-        df = occ_api.copy()
-        # Core LMI returns occupation descriptions as the index or a column
-        # Normalize column names for the report
-        rename_map = {}
-        if "Jobs 2026" in df.columns:
-            rename_map["Jobs 2026"] = "2026 Jobs"
-        if "Openings 2026" in df.columns:
-            rename_map["Openings 2026"] = "Avg. Annual Openings"
-
-        if rename_map:
-            df = df.rename(columns=rename_map)
-        return df
+        return _clean_occupation_df(occ_api.copy(), config.living_wage)
 
     # Fallback to manual CSV
-    return read_occ_csv(config.overview_xls if config.occ_csv is None else config.occ_csv) or read_occ_csv(
-        config.occ_csv
-    )
+    csv_path = config.occ_csv if config.occ_csv else None
+    return read_occ_csv(csv_path)
 
 
 def _build_wage_sheet(config: ReportConfig, occ_api: pd.DataFrame | None) -> pd.DataFrame | None:
@@ -53,9 +70,29 @@ def _build_wage_sheet(config: ReportConfig, occ_api: pd.DataFrame | None) -> pd.
         return None
 
     df = occ_api.copy()
-    # Select wage-relevant columns and add living wage flag
-    # Column names depend on what Core LMI returns
-    return df
+    df = df.rename(columns=OCCUPATION_COLUMN_MAP)
+    cols_to_drop = [c for c in df.columns if c is None]
+    df = df.drop(columns=cols_to_drop, errors="ignore")
+
+    # Select wage-relevant columns only
+    wage_cols = ["SOC", "Median Hourly Wage", "Entry Wage (P10)", "Experienced Wage (P90)"]
+    available = [c for c in wage_cols if c in df.columns]
+    if not available:
+        return None
+
+    df = df[available].copy()
+    if "Median Hourly Wage" in df.columns:
+        df["Below Living Wage"] = df["Median Hourly Wage"] <= config.living_wage
+
+    return df.sort_values("Median Hourly Wage", ascending=False).reset_index(drop=True)
+
+
+def _find_col(df: pd.DataFrame, *keywords) -> str | None:
+    """Find first column name matching all keywords."""
+    for col in df.columns:
+        if all(kw in col for kw in keywords):
+            return col
+    return None
 
 
 def _build_regional_comparison(
@@ -66,43 +103,35 @@ def _build_regional_comparison(
         return None
 
     rows = []
-    metrics = {
-        "Jobs (Total)": ["Jobs 2026", "Jobs.2026"],
-        "Earnings per Job": ["Earnings 2025", "Earnings.2025"],
-    }
 
-    for label, col_options in metrics.items():
-        row = {"Metric": label}
-        for level, df in regional_api.items():
-            if df is not None and not df.empty:
-                # Try each possible column name
-                for col in col_options:
-                    if col in df.columns:
-                        row[level] = df[col].sum()
-                        break
-                else:
-                    row[level] = None
-            else:
-                row[level] = None
-        rows.append(row)
+    # Jobs
+    jobs_row = {"Metric": "Jobs (Total)"}
+    for level, df in regional_api.items():
+        col = _find_col(df, "Jobs", "2026")
+        jobs_row[level] = df[col].sum() if col and not df.empty else None
+    rows.append(jobs_row)
 
-    # Add growth metric
+    # Earnings
+    earnings_row = {"Metric": "Earnings per Job"}
+    for level, df in regional_api.items():
+        col = _find_col(df, "Earnings")
+        earnings_row[level] = df[col].sum() if col and not df.empty else None
+    rows.append(earnings_row)
+
+    # Growth
     growth_row = {"Metric": "Projected Job Growth (2026-2029)"}
     for level, df in regional_api.items():
-        if df is not None and not df.empty:
-            jobs_2026_col = next((c for c in df.columns if "Jobs" in c and "2026" in c), None)
-            jobs_2029_col = next((c for c in df.columns if "Jobs" in c and "2029" in c), None)
-            if jobs_2026_col and jobs_2029_col:
-                j26 = df[jobs_2026_col].sum()
-                j29 = df[jobs_2029_col].sum()
-                growth_row[level] = (j29 - j26) / j26 if j26 else None
-            else:
-                growth_row[level] = None
+        col26 = _find_col(df, "Jobs", "2026")
+        col29 = _find_col(df, "Jobs", "2029")
+        if col26 and col29 and not df.empty:
+            j26 = df[col26].sum()
+            j29 = df[col29].sum()
+            growth_row[level] = round((j29 - j26) / j26, 4) if j26 else None
         else:
             growth_row[level] = None
     rows.append(growth_row)
 
-    # Add posting metrics if available from JPA
+    # Posting metrics if available from JPA
     if postings_totals is not None:
         rows.append(
             {
@@ -112,9 +141,6 @@ def _build_regional_comparison(
                 "nation": None,
             }
         )
-
-    if not rows:
-        return None
 
     df = pd.DataFrame(rows)
     col_map = {"msa": config.msa_name, "state": "Texas", "nation": "United States"}
@@ -148,7 +174,7 @@ def _build_summary_sheet(
 
     # Try API for total jobs
     if occ_api is not None and not occ_api.empty:
-        jobs_col = next((c for c in occ_api.columns if "Jobs" in c and "2026" in c), None)
+        jobs_col = _find_col(occ_api, "Jobs", "2026")
         if jobs_col:
             data["Current Employed"] = occ_api[jobs_col].sum()
 
@@ -223,6 +249,10 @@ def build_all_sheets(config: ReportConfig) -> OrderedDict[str, pd.DataFrame]:
     occupations = _build_occupations_sheet(config, occ_api)
     if occupations is not None:
         sheets["Notable Occupations"] = occupations
+
+    wage = _build_wage_sheet(config, occ_api)
+    if wage is not None:
+        sheets["Wage Analysis"] = wage
 
     employers = _build_employers_sheet(config, api_employers)
     if employers is not None:
