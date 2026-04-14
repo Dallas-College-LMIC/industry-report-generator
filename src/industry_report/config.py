@@ -10,6 +10,7 @@ class ReportConfig:
     naics_codes: list[str]
     naics_label: str
     soc_codes: list[str]
+    soc_titles: list[str]
     soc_label: str
     msa_code: str
     msa_name: str
@@ -47,6 +48,7 @@ def load_config(path: str | Path) -> ReportConfig:
         naics_codes=industry["naics_codes"],
         naics_label=industry.get("label", "Selected Industries"),
         soc_codes=occupation["soc_codes"],
+        soc_titles=occupation.get("soc_titles", []),
         soc_label=occupation.get("label", "Selected Occupations"),
         msa_code=geo["msa_code"],
         msa_name=geo["msa_name"],

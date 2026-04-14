@@ -16,6 +16,14 @@ soc_codes = [
     "43-6013", "11-9111", "29-2061", "31-9091", "29-2018",
     "29-1292", "29-2034", "31-9097", "29-2072", "29-2099",
 ]
+soc_titles = [
+    "Registered Nurses", "Nurse Practitioners", "Home Health and Personal Care Aides",
+    "Nursing Assistants", "Medical Assistants", "Medical Secretaries and Administrative Assistants",
+    "Medical and Health Services Managers", "Licensed Practical and Vocational Nurses",
+    "Dental Assistants", "Psychiatric Technicians and Aides", "Dental Hygienists",
+    "Respiratory Therapists", "Phlebotomists", "Court, Municipal, and License Clerks",
+    "Health Diagnosing and Treating Practitioners, All Other",
+]
 label = "Healthcare Occupations"
 
 [geography]

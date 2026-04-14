@@ -10,12 +10,28 @@ from .config import ReportConfig
 
 # Column formatting rules per sheet
 COL_FORMAT = {
+    "Notable Occupations": {
+        "2026 Jobs": "thousands",
+        "2029 Jobs": "thousands",
+        "Avg. Annual Openings": "thousands",
+        "2026-2029 Change": "thousands",
+        "% Change": "percent",
+        "Entry Wage (P10)": "currency",
+        "Median Hourly Wage": "currency",
+        "Experienced Wage (P90)": "currency",
+    },
+    "Wage Analysis": {
+        "Entry Wage (P10)": "currency",
+        "Median Hourly Wage": "currency",
+        "Experienced Wage (P90)": "currency",
+    },
     "In-Demand Skills": {
         "Projected Skill Growth": "percent",
     },
-    "Notable Occupations": {
-        "Median Hourly Earnings": "currency",
-        "Median Hourly Wage": "currency",
+    "Regional Comparison": {
+        "Jobs (Total)": "thousands",
+        "Earnings per Job": "currency",
+        "Projected Job Growth (2026-2029)": "percent",
     },
 }
 

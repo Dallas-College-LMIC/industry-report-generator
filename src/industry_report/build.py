@@ -36,12 +36,19 @@ OCCUPATION_COLUMN_MAP = {
     "Earnings.Percentile90.2024": "Experienced Wage (P90)",
 }
 
+# Map SOC codes to occupation titles for readability
+SOC_TITLE_MAP = {}  # populated from config at build time
+
 
 def _clean_occupation_df(df: pd.DataFrame, living_wage: float) -> pd.DataFrame:
     """Rename columns, compute derived fields, add living wage flag."""
     df = df.rename(columns=OCCUPATION_COLUMN_MAP)
     cols_to_drop = [c for c in df.columns if c is None]
     df = df.drop(columns=cols_to_drop, errors="ignore")
+
+    # Add occupation title from SOC code
+    if "SOC" in df.columns and SOC_TITLE_MAP:
+        df.insert(1, "Occupation", df["SOC"].map(SOC_TITLE_MAP))
 
     # Derived columns
     if "2026 Jobs" in df.columns and "2029 Jobs" in df.columns:
@@ -75,12 +82,16 @@ def _build_wage_sheet(config: ReportConfig, occ_api: pd.DataFrame | None) -> pd.
     df = df.drop(columns=cols_to_drop, errors="ignore")
 
     # Select wage-relevant columns only
-    wage_cols = ["SOC", "Median Hourly Wage", "Entry Wage (P10)", "Experienced Wage (P90)"]
+    wage_cols = ["SOC", "Occupation", "Median Hourly Wage", "Entry Wage (P10)", "Experienced Wage (P90)"]
     available = [c for c in wage_cols if c in df.columns]
     if not available:
         return None
 
     df = df[available].copy()
+
+    # Add occupation title if we have SOC but not Occupation
+    if "SOC" in df.columns and "Occupation" not in df.columns and SOC_TITLE_MAP:
+        df.insert(1, "Occupation", df["SOC"].map(SOC_TITLE_MAP))
     if "Median Hourly Wage" in df.columns:
         df["Below Living Wage"] = df["Median Hourly Wage"] <= config.living_wage
 
@@ -176,7 +187,7 @@ def _build_summary_sheet(
     if occ_api is not None and not occ_api.empty:
         jobs_col = _find_col(occ_api, "Jobs", "2026")
         if jobs_col:
-            data["Current Employed"] = occ_api[jobs_col].sum()
+            data["Total Jobs"] = int(occ_api[jobs_col].sum())
 
     # Try JPA for postings
     if api_totals is not None:
@@ -185,7 +196,7 @@ def _build_summary_sheet(
     # Manual fallback
     manual_totals = read_overview_totals(config.overview_xls)
     if manual_totals:
-        data.setdefault("Current Employed", manual_totals["current_employed"])
+        data.setdefault("Total Jobs", manual_totals["current_employed"])
         data.setdefault("Monthly Average Jobs Posted", manual_totals["monthly_avg_postings"])
         data["% 3-year Job Demand Growth Rate"] = manual_totals["three_yr_growth"]
 
@@ -208,6 +219,10 @@ def build_all_sheets(config: ReportConfig) -> OrderedDict[str, pd.DataFrame]:
     Returns an OrderedDict of sheet_name -> DataFrame. Sheets with no data are omitted.
     """
     sheets = OrderedDict()
+
+    # Populate SOC title lookup from config
+    global SOC_TITLE_MAP
+    SOC_TITLE_MAP = dict(zip(config.soc_codes, config.soc_titles)) if config.soc_titles else {}
 
     # Fetch API data
     occ_api = None
