@@ -1,0 +1,22 @@
+[project]
+name = "industry-report-generator"
+version = "0.1.0"
+description = "Config-driven industry report data generation for Dallas College LMIC"
+requires-python = ">=3.13"
+dependencies = [
+    "pandas>=2.3.2",
+    "openpyxl>=3.1.5",
+    "xlrd>=2.0.1",
+    "pyghtcast",
+    "dclmic-export",
+]
+
+[project.scripts]
+industry-report = "industry_report.cli:main"
+
+[tool.uv.sources]
+pyghtcast = { git = "https://github.com/Dallas-College-LMIC/pyghtcast" }
+dclmic-export = { git = "https://github.com/Dallas-College-LMIC/dclmic-export" }
+
+[tool.ruff]
+line-length = 100

@@ -1,0 +1,31 @@
+[report]
+name = "Healthcare"
+output_dir = "./output"
+
+[industry]
+naics_codes = [
+    "6211", "6212", "6213", "6214", "6215", "6216", "6219",
+    "6221", "6222", "6223", "6231", "6232", "6233", "6239",
+    "6241", "6242", "6243",
+]
+label = "Healthcare Industries"
+
+[occupation]
+soc_codes = [
+    "29-1141", "29-1171", "31-1128", "31-1131", "31-9092",
+    "43-6013", "11-9111", "29-2061", "31-9091", "29-2018",
+    "29-1292", "29-2034", "31-9097", "29-2072", "29-2099",
+]
+label = "Healthcare Occupations"
+
+[geography]
+msa_code = "19100"
+msa_name = "Dallas-Fort Worth-Arlington, TX"
+state_code = "48"
+living_wage = 23.36
+
+[manual_inputs]
+# Set these to file paths if JPA API is unavailable
+overview_xls = ""
+jpa_xls = ""
+occ_csv = ""
