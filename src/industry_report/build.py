@@ -122,11 +122,17 @@ def _build_regional_comparison(
         jobs_row[level] = df[col].sum() if col and not df.empty else None
     rows.append(jobs_row)
 
-    # Earnings
+    # Earnings per job
     earnings_row = {"Metric": "Earnings per Job"}
     for level, df in regional_api.items():
-        col = _find_col(df, "Earnings")
-        earnings_row[level] = df[col].sum() if col and not df.empty else None
+        col_e = _find_col(df, "Earnings")
+        col_j = _find_col(df, "Jobs", "2026")
+        if col_e and col_j and not df.empty:
+            total_earnings = df[col_e].sum()
+            total_jobs = df[col_j].sum()
+            earnings_row[level] = round(total_earnings / total_jobs, 2) if total_jobs else None
+        else:
+            earnings_row[level] = None
     rows.append(earnings_row)
 
     # Growth

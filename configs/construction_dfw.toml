@@ -1,0 +1,39 @@
+[report]
+name = "Construction"
+output_dir = "./output"
+
+[industry]
+naics_codes = [
+    "2361", "2362", "2371", "2372", "2373", "2379",
+    "2381", "2382", "2383", "2389",
+]
+label = "Construction Industries"
+
+[occupation]
+soc_codes = [
+    "11-9021", "17-1022", "17-3031", "47-1011", "47-2021",
+    "47-2031", "47-2051", "47-2061", "47-2073", "47-2111",
+    "47-2141", "47-2152", "47-2221", "47-2231", "47-4011",
+    "53-7021",
+]
+soc_titles = [
+    "Construction Managers", "Surveyors", "Surveying and Mapping Technicians",
+    "First-Line Supervisors of Construction Trades and Extraction Workers",
+    "Brickmasons and Blockmasons", "Carpenters", "Cement Masons and Concrete Finishers",
+    "Construction Laborers", "Operating Engineers and Other Construction Equipment Operators",
+    "Electricians", "Painters, Construction and Maintenance", "Plumbers, Pipefitters, and Steamfitters",
+    "Structural Iron and Steel Workers", "Solar Photovoltaic Installers",
+    "Construction and Building Inspectors", "Crane and Tower Operators",
+]
+label = "Construction Occupations"
+
+[geography]
+msa_code = "19100"
+msa_name = "Dallas-Fort Worth-Arlington, TX"
+state_code = "48"
+living_wage = 23.36
+
+[manual_inputs]
+overview_xls = ""
+jpa_xls = ""
+occ_csv = ""

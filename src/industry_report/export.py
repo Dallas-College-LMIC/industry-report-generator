@@ -45,10 +45,14 @@ def export_workbook(frames: OrderedDict[str, pd.DataFrame], config: ReportConfig
 
     output_path = config.output_dir / f"{config.name.replace(' ', '_')}_Report_Data.xlsx"
 
+    output_dir_str = str(config.output_dir)
+    if not output_dir_str.endswith("/"):
+        output_dir_str += "/"
+
     dclmic_export.save_dfs_as_xl(
         list_of_frames=list(frames.values()),
         col_format=COL_FORMAT,
-        path=str(config.output_dir),
+        path=output_dir_str,
         file_name=output_path.stem,
         sheet_titles=list(frames.keys()),
     )

@@ -71,5 +71,5 @@ def fetch_regional_comparison(naics_codes: list[str], msa_code: str, state_code:
     return {
         "msa": fetch_industry_data(naics_codes, f"MSA{msa_code}"),
         "state": fetch_industry_data(naics_codes, state_code),
-        "nation": fetch_industry_data(naics_codes, "1"),
+        "nation": fetch_industry_data(naics_codes, "0"),
     }
