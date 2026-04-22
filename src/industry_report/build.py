@@ -17,6 +17,7 @@ from .read_manual import (
     read_demographics,
     read_employers,
     read_employers_competing,
+    read_jpa_totals,
     read_occ_csv,
     read_overview_totals,
     read_salary_trend as read_manual_salary_trend,
@@ -171,7 +172,7 @@ def _build_employers_sheet(
     """Build Top Employers sheet."""
     if api_employers is not None and not api_employers.empty:
         return api_employers
-    return read_employers(config.overview_xls)
+    return read_employers(config.jpa_xls, config.overview_xls)
 
 
 def _build_skills_sheet(config: ReportConfig, api_skills: pd.DataFrame | None) -> pd.DataFrame | None:
@@ -198,6 +199,10 @@ def _build_summary_sheet(
     # Try JPA for postings
     if api_totals is not None:
         data["Monthly Average Jobs Posted"] = api_totals.get("unique_postings")
+    else:
+        jpa_totals = read_jpa_totals(config.jpa_xls)
+        if jpa_totals:
+            data.setdefault("Monthly Average Jobs Posted", jpa_totals.get("unique_postings"))
 
     # Manual fallback
     manual_totals = read_overview_totals(config.overview_xls)
@@ -211,7 +216,7 @@ def _build_summary_sheet(
     if api_totals and "unique_companies" in api_totals:
         data["Employers Competing"] = api_totals["unique_companies"]
     elif employers_competing:
-        data["Employers Competing"] = employers_competing
+        data.setdefault("Employers Competing", employers_competing)
 
     if not data:
         return None
