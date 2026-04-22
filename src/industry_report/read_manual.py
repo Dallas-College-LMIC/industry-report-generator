@@ -136,14 +136,18 @@ def read_demographics(overview_xls: Path | None) -> dict[str, pd.DataFrame | Non
 
 
 def read_skills(jpa_xls: Path | None) -> pd.DataFrame | None:
-    """Extract top specialized skills from jpa.xls."""
-    if jpa_xls is None or not jpa_xls.exists():
-        return None
+    """Extract top specialized skills from JPA file."""
+    return _read_sheet(jpa_xls, "Top Specialized Skills", header=2)
 
-    try:
-        return pd.read_excel(str(jpa_xls), sheet_name="Top Specialized Skills", header=2).head(15)
-    except Exception:
-        return None
+
+def read_common_skills(jpa_path: Path | None) -> pd.DataFrame | None:
+    """Extract top common/soft skills from JPA file."""
+    return _read_sheet(jpa_path, "Top Common Skills", header=2)
+
+
+def read_software_skills(jpa_path: Path | None) -> pd.DataFrame | None:
+    """Extract top software/technical skills from JPA file."""
+    return _read_sheet(jpa_path, "Top Software Skills", header=2)
 
 
 def read_salary_trend(jpa_xls: Path | None) -> pd.DataFrame | None:

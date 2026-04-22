@@ -10,6 +10,15 @@ from .config import ReportConfig
 
 # Column formatting rules per sheet
 COL_FORMAT = {
+    "Industry Overview": {
+        "2026 Jobs": "thousands",
+        "2029 Jobs": "thousands",
+        "Total Earnings": "currency_int",
+        "Earnings per Job": "currency_int",
+        "2026-2029 Change": "thousands",
+        "% Change": "percent",
+        "Share of Sector": "percent",
+    },
     "Notable Occupations": {
         "2026 Jobs": "thousands",
         "2029 Jobs": "thousands",
@@ -28,9 +37,17 @@ COL_FORMAT = {
     "In-Demand Skills": {
         "Projected Skill Growth": "percent",
     },
+    "Top Common Skills": {
+        "Projected Skill Growth": "percent",
+    },
+    "Top Software Skills": {
+        "Projected Skill Growth": "percent",
+    },
     "Regional Comparison": {
         "Jobs (Total)": "thousands",
         "Earnings per Job": "currency",
+        "Job Postings (Monthly Avg)": "thousands",
+        "Postings per 1,000 Jobs": "decimal",
         "Projected Job Growth (2026-2029)": "percent",
     },
 }

@@ -6,7 +6,7 @@ import dclmic_export
 import pandas as pd
 
 from .config import ReportConfig
-from .fetch_corelmi import fetch_occupation_data, fetch_regional_comparison
+from .fetch_corelmi import fetch_industry_overview, fetch_occupation_data, fetch_regional_comparison
 from .fetch_postings import (
     fetch_salary_trend,
     fetch_top_employers,
@@ -14,6 +14,7 @@ from .fetch_postings import (
     fetch_totals,
 )
 from .read_manual import (
+    read_common_skills,
     read_demographics,
     read_employers,
     read_employers_competing,
@@ -22,6 +23,7 @@ from .read_manual import (
     read_overview_totals,
     read_salary_trend as read_manual_salary_trend,
     read_skills,
+    read_software_skills,
 )
 
 # Column rename map: API column names → report-friendly names
@@ -39,6 +41,18 @@ OCCUPATION_COLUMN_MAP = {
 
 # Map SOC codes to occupation titles for readability
 SOC_TITLE_MAP = {}  # populated from config at build time
+
+# Map NAICS codes to industry titles for readability
+NAICS_TITLE_MAP = {}  # populated from config at build time
+
+INDUSTRY_COLUMN_MAP = {
+    "Industry": "NAICS",
+    "Area": None,
+    "ClassOfWorker": None,
+    "Jobs.2026": "2026 Jobs",
+    "Jobs.2029": "2029 Jobs",
+    "Earnings.2025": "Total Earnings",
+}
 
 
 def _clean_occupation_df(df: pd.DataFrame, living_wage: float) -> pd.DataFrame:
@@ -99,6 +113,36 @@ def _build_wage_sheet(config: ReportConfig, occ_api: pd.DataFrame | None) -> pd.
     return df.sort_values("Median Hourly Wage", ascending=False).reset_index(drop=True)
 
 
+def _build_industry_overview(config: ReportConfig) -> pd.DataFrame | None:
+    """Build Industry Overview sheet with per-NAICS breakdown."""
+    try:
+        df = fetch_industry_overview(config.naics_codes, config.msa_code)
+    except Exception:
+        return None
+
+    if df is None or df.empty:
+        return None
+
+    df = df.rename(columns=INDUSTRY_COLUMN_MAP)
+    cols_to_drop = [c for c in df.columns if c is None]
+    df = df.drop(columns=cols_to_drop, errors="ignore")
+
+    if "NAICS" in df.columns and NAICS_TITLE_MAP:
+        df.insert(1, "Industry", df["NAICS"].map(NAICS_TITLE_MAP))
+
+    # Derived columns
+    if "Total Earnings" in df.columns and "2026 Jobs" in df.columns:
+        df["Earnings per Job"] = (df["Total Earnings"] / df["2026 Jobs"]).round(2)
+    if "2026 Jobs" in df.columns and "2029 Jobs" in df.columns:
+        df["2026-2029 Change"] = df["2029 Jobs"] - df["2026 Jobs"]
+        df["% Change"] = (df["2026-2029 Change"] / df["2026 Jobs"]).round(4)
+    if "2026 Jobs" in df.columns:
+        total = df["2026 Jobs"].sum()
+        df["Share of Sector"] = (df["2026 Jobs"] / total).round(4)
+
+    return df.sort_values("2026 Jobs", ascending=False).reset_index(drop=True)
+
+
 def _find_col(df: pd.DataFrame, *keywords) -> str | None:
     """Find first column name matching all keywords."""
     for col in df.columns:
@@ -151,14 +195,28 @@ def _build_regional_comparison(
 
     # Posting metrics if available from JPA
     if postings_totals is not None:
-        rows.append(
-            {
-                "Metric": "Job Postings (Monthly Avg)",
-                "msa": postings_totals.get("unique_postings"),
+        postings_row = {
+            "Metric": "Job Postings (Monthly Avg)",
+            "msa": postings_totals.get("unique_postings"),
+            "state": None,
+            "nation": None,
+        }
+        rows.append(postings_row)
+
+        # Postings per 1,000 jobs (MSA only for now)
+        msa_jobs = None
+        for row in rows:
+            if row["Metric"] == "Jobs (Total)":
+                msa_jobs = row.get("msa")
+                break
+        if msa_jobs and postings_row.get("msa"):
+            per_1k = round(int(postings_row["msa"]) / msa_jobs * 1000, 1)
+            rows.append({
+                "Metric": "Postings per 1,000 Jobs",
+                "msa": per_1k,
                 "state": None,
                 "nation": None,
-            }
-        )
+            })
 
     df = pd.DataFrame(rows)
     col_map = {"msa": config.msa_name, "state": "Texas", "nation": "United States"}
@@ -232,8 +290,9 @@ def build_all_sheets(config: ReportConfig) -> OrderedDict[str, pd.DataFrame]:
     sheets = OrderedDict()
 
     # Populate SOC title lookup from config
-    global SOC_TITLE_MAP
+    global SOC_TITLE_MAP, NAICS_TITLE_MAP
     SOC_TITLE_MAP = dict(zip(config.soc_codes, config.soc_titles)) if config.soc_titles else {}
+    NAICS_TITLE_MAP = dict(zip(config.naics_codes, config.naics_titles)) if config.naics_titles else {}
 
     # Fetch API data
     occ_api = None
@@ -267,7 +326,18 @@ def build_all_sheets(config: ReportConfig) -> OrderedDict[str, pd.DataFrame]:
     except Exception:
         pass
 
+    # Resolve posting totals (API first, manual JPA fallback)
+    postings_totals = api_totals
+    if postings_totals is None:
+        jpa_totals = read_jpa_totals(config.jpa_xls)
+        if jpa_totals:
+            postings_totals = jpa_totals
+
     # Build each sheet (API first, manual fallback, skip if neither)
+    industry_overview = _build_industry_overview(config)
+    if industry_overview is not None:
+        sheets["Industry Overview"] = industry_overview
+
     summary = _build_summary_sheet(config, occ_api, api_totals)
     if summary is not None:
         sheets["Did you know"] = summary
@@ -288,7 +358,16 @@ def build_all_sheets(config: ReportConfig) -> OrderedDict[str, pd.DataFrame]:
     if skills is not None:
         sheets["In-Demand Skills"] = skills
 
-    comparison = _build_regional_comparison(config, regional_api, api_totals)
+    # Additional skills sheets from manual JPA
+    common_skills = read_common_skills(config.jpa_xls)
+    if common_skills is not None:
+        sheets["Top Common Skills"] = common_skills.head(15)
+
+    software_skills = read_software_skills(config.jpa_xls)
+    if software_skills is not None:
+        sheets["Top Software Skills"] = software_skills.head(15)
+
+    comparison = _build_regional_comparison(config, regional_api, postings_totals)
     if comparison is not None:
         sheets["Regional Comparison"] = comparison
 

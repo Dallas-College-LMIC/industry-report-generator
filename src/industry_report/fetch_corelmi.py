@@ -73,3 +73,22 @@ def fetch_regional_comparison(naics_codes: list[str], msa_code: str, state_code:
         "state": fetch_industry_data(naics_codes, state_code),
         "nation": fetch_industry_data(naics_codes, "0"),
     }
+
+
+def fetch_industry_overview(naics_codes: list[str], msa_code: str) -> pd.DataFrame:
+    """Fetch per-NAICS industry employment and earnings at MSA level.
+
+    Each NAICS code gets its own row for subsector breakdown.
+    """
+    lc = _get_client()
+
+    naics_map = {n: [n] for n in naics_codes}
+
+    constraints = [
+        {"dimensionName": "Area", "map": {"MSA": [f"MSA{msa_code}"]}},
+        {"dimensionName": "Industry", "map": naics_map},
+        {"dimensionName": "ClassOfWorker", "map": {"QCEW Employees": ["1"]}},
+    ]
+
+    query = lc.build_query_corelmi(cols=INDUSTRY_METRICS, constraints=constraints)
+    return lc.query_corelmi(dataset="EMSI.us.Industry", query=query, datarun="2026.1")

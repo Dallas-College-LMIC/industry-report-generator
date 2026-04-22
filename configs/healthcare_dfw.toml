@@ -8,6 +8,25 @@ naics_codes = [
     "6221", "6222", "6223", "6231", "6232", "6233", "6239",
     "6241", "6242", "6243",
 ]
+naics_titles = [
+    "Offices of Physicians",
+    "Offices of Dentists",
+    "Offices of Other Health Practitioners",
+    "Outpatient Care Centers",
+    "Medical and Diagnostic Laboratories",
+    "Home Health Care Services",
+    "Other Ambulatory Health Care Services",
+    "General Medical and Surgical Hospitals",
+    "Psychiatric and Substance Abuse Hospitals",
+    "Specialty (except Psychiatric and Substance Abuse) Hospitals",
+    "Nursing Care Facilities (Skilled Nursing Facilities)",
+    "Residential Intellectual and Developmental Disability Facilities",
+    "Community Care Facilities for the Elderly",
+    "Other Residential Care Facilities",
+    "Individual and Family Services",
+    "Community Food and Housing Services",
+    "Vocational Rehabilitation Services",
+]
 label = "Healthcare Industries"
 
 [occupation]

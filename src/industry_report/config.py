@@ -8,6 +8,7 @@ class ReportConfig:
     name: str
     output_dir: Path
     naics_codes: list[str]
+    naics_titles: list[str]
     naics_label: str
     soc_codes: list[str]
     soc_titles: list[str]
@@ -46,6 +47,7 @@ def load_config(path: str | Path) -> ReportConfig:
         name=report["name"],
         output_dir=base_dir / report.get("output_dir", "./output"),
         naics_codes=industry["naics_codes"],
+        naics_titles=industry.get("naics_titles", []),
         naics_label=industry.get("label", "Selected Industries"),
         soc_codes=occupation["soc_codes"],
         soc_titles=occupation.get("soc_titles", []),
