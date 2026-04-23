@@ -11,8 +11,12 @@ dependencies = [
     "dclmic-export",
 ]
 
+[project.optional-dependencies]
+dashboard = ["streamlit", "plotly"]
+
 [project.scripts]
 industry-report = "industry_report.cli:main"
+industry-report-dashboard = "industry_report.dashboard_launcher:main"
 
 [tool.uv.sources]
 pyghtcast = { git = "https://github.com/Dallas-College-LMIC/pyghtcast" }
