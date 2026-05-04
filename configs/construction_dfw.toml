@@ -47,5 +47,5 @@ living_wage = 23.36
 
 [manual_inputs]
 overview_xls = ""
-jpa_xls = "/home/ammar/Downloads/Job_Posting_Analytics_NextGen_partnership_Construction_in_Dallas_Fort_Worth_Arlington_TX_24d65037f15405a4.xlsx"
+jpa_xls = "construction_dfw/jpa.xlsx"
 occ_csv = ""
