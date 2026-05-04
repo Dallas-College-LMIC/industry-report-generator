@@ -6,3 +6,4 @@ output/
 .direnv/
 .envrc
 uv.lock
+configs/*/.cache/

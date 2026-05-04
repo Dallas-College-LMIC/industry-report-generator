@@ -24,11 +24,22 @@ def _load_env(path: str = ".env") -> None:
             os.environ.setdefault(key, value)
 
 
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Generate industry report data tables")
+    parser.add_argument("--config", required=True, help="Path to TOML config file")
+    parser.add_argument(
+        "--fetch-zip",
+        action="store_true",
+        default=False,
+        help="Pre-fetch ZIP-level data from Lightcast/Census (batch job, 30-60 min)",
+    )
+    return parser
+
+
 def main():
     _load_env()
 
-    parser = argparse.ArgumentParser(description="Generate industry report data tables")
-    parser.add_argument("--config", required=True, help="Path to TOML config file")
+    parser = _build_parser()
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -38,11 +49,19 @@ def main():
     print(f"Region: {config.msa_name}")
     print()
 
+    if args.fetch_zip:
+        from .fetch_zip import run_fetch_zip
+
+        run_fetch_zip(config)
+        return
+
     print("Fetching data...")
     sheets = build_all_sheets(config)
 
     if not sheets:
-        print("ERROR: No data could be fetched. Check API credentials and/or manual input file paths.")
+        print(
+            "ERROR: No data could be fetched. Check API credentials and/or manual input file paths."
+        )
         sys.exit(1)
 
     print(f"Built {len(sheets)} sheets: {', '.join(sheets.keys())}")

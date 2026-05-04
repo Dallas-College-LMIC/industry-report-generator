@@ -25,22 +25,46 @@ config.toml
     │         │
     │         └──→ (on failure) read_manual.py ──→ same data from Excel files
     │
+    ├──→ fetch_zip.py ──→ ZIP-level industry, occupation, census data (batch job)
+    │         │
+    │         └──→ build_zip.py ──→ ZIP-level analysis sheets (reads CSVs)
+    │
     └──→ build.py ──→ OrderedDict of sheet_name → DataFrame
               │
               └──→ export.py ──→ formatted .xlsx workbook
 ```
 
+### Data directory convention
+
+Each config `configs/<stem>.toml` has a companion data directory `configs/<stem>/` that holds pre-fetched ZIP-level CSVs:
+
+```
+configs/
+  healthcare_dfw.toml
+  healthcare_dfw/              ← committed to git
+    industry.csv               (~52 KB, 308 rows)
+    occupation.csv             (~96 KB, 401 rows)
+    census.csv                 (~116 KB, 281 rows)
+    geography_manifest.json    ← ZIP code list for fetchers
+    .cache/                    ← gitignored pickle cache
+```
+
+The directory path is derived from the config file stem via `ReportConfig.zip_data`.
+
 ### Source modules (`src/industry_report/`)
 
 | File | Responsibility |
 |------|----------------|
-| `cli.py` | Argument parsing, env loading (`.env`), orchestration |
-| `config.py` | TOML loader → `ReportConfig` dataclass |
+| `cli.py` | Argument parsing, env loading (`.env`), orchestration (incl. `--fetch-zip`) |
+| `config.py` | TOML loader → `ReportConfig` dataclass (incl. `zip_data` property) |
 | `fetch_corelmi.py` | Lightcast Core LMI queries via `pyghtcast` |
 | `fetch_postings.py` | Lightcast JPA queries via `pyghtcast` (often unavailable) |
+| `fetch_zip.py` | ZIP-level batch fetchers (Lightcast per-ZIP + Census ACS) |
 | `read_manual.py` | Fallback readers for `.xls`, `.xlsx`, `.csv` exports from Lightcast web UI |
-| `build.py` | Assemble API + fallback data into report DataFrames |
+| `build.py` | Assemble API + fallback data into MSA-level report DataFrames |
+| `build_zip.py` | Assemble pre-fetched CSVs into ZIP-level analysis DataFrames |
 | `export.py` | Write formatted workbook via `dclmic_export` |
+| `dashboard.py` | Streamlit dashboard with MSA-Level and ZIP-Level Spatial tabs |
 
 ---
 
@@ -142,12 +166,21 @@ python -m industry_report --config configs/healthcare_dfw.toml
 # Or via installed script
 industry-report --config configs/healthcare_dfw.toml
 
+# Pre-fetch ZIP-level data (batch job, 30-60 min)
+industry-report --config configs/healthcare_dfw.toml --fetch-zip
+
 # Sync dependencies
 uv sync
+
+# Install with ZIP extras (for censusdis)
+uv sync --extra zip
 
 # Lint / format
 ruff check src/
 ruff format src/
+
+# Run tests
+python -m pytest tests/ -v
 ```
 
 **Env vars** (can also live in `.env` at repo root):
@@ -209,6 +242,14 @@ The tool generates whatever it can from available data. Expected sheets (when fu
 11. **Advertised Wage Trend** — monthly posting salary trend
 12. **Work where you live** — employers competing count
 
+### ZIP-Level Sheets (when CSVs are available in `config.zip_data/`)
+
+13. **ZIP Industry Detail** — industry jobs/earnings/growth per ZIP
+14. **ZIP Occupation Detail** — occupation jobs/wages/openings per ZIP
+15. **Census Context** — demographics, education, income per ZIP
+16. **Top ZIPs by Jobs** — employment concentration analysis (top 25 industry + top 25 occupation)
+17. **Wage Analysis** — wage distribution (P10/P50/P90) per ZIP sorted by median
+
 ---
 
 ## Common Agent Tasks
@@ -260,12 +301,22 @@ Both git deps are Dallas College LMIC internal packages. If API behavior changes
 
 ## Testing
 
-There is no test suite yet (`tests/` exists but is empty). When adding tests:
+Tests live in `tests/` and use `pytest`. Key test modules:
+
+- `tests/test_zip_module.py` — ZIP-level module tests (config property, build_zip with fixtures, missing data, CLI flag)
+
+Fixtures are in `tests/fixtures/`:
+
+- `tests/fixtures/test_config.toml` — minimal TOML config for tests
+- `tests/fixtures/zip_data/` — 10-row CSV samples for industry, occupation, census
+
+When adding tests:
 
 - Use `pytest`.
 - Mock `pyghtcast.lightcast.Lightcast` and `JobPostings` to avoid network calls.
 - Provide minimal fixture files in `tests/fixtures/` for manual fallback readers.
 - Test the fallback chain: API fail → manual success → sheet built correctly.
+- For ZIP-level: test with fixture CSVs and test graceful handling of missing data.
 
 ---
 
@@ -274,7 +325,7 @@ There is no test suite yet (`tests/` exists but is empty). When adding tests:
 - JPA API scope (`postings:us`) is not available with current credentials. All JPA-dependent sheets rely on manual Excel fallbacks.
 - Typical Entry Level Education is not available from Lightcast API; reports currently source this from BLS SOC definitions (not yet automated).
 - Demographics API (`emsi.us.occupation.demographics`) exists in spec but is not yet wired in `fetch_corelmi.py`; demographic sheets come exclusively from manual `overview.xls`.
-- ZIP-level spatial analysis is explicitly out of scope for this module (separate future module).
+- ZIP-level spatial analysis is now implemented. Use `--fetch-zip` to pre-fetch data, and the Streamlit dashboard shows a **ZIP-Level Spatial** tab. Data lives in `configs/<stem>/` as committed CSVs (~260 KB total per industry).
 
 ---
 
@@ -286,5 +337,6 @@ When onboarding a new industry:
 - [ ] Add `naics_titles` and `soc_titles` for readable output rows
 - [ ] Verify `msa_code`, `state_code`, and `living_wage` in `[geography]`
 - [ ] (Optional) Download Lightcast exports and set `[manual_inputs]` paths if JPA is unavailable
+- [ ] (Optional) Run `industry-report --config configs/<industry>_dfw.toml --fetch-zip` to generate ZIP-level CSVs
 - [ ] Run `python -m industry_report --config configs/<industry>_dfw.toml`
 - [ ] Inspect output in `configs/output/<Name>_Report_Data.xlsx`

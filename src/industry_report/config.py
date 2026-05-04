@@ -20,6 +20,21 @@ class ReportConfig:
     overview_xls: Path | None = None
     jpa_xls: Path | None = None
     occ_csv: Path | None = None
+    _config_path: Path | None = field(default=None, repr=False)
+    _zip_data_override: Path | None = field(default=None, repr=False)
+
+    @property
+    def zip_data(self) -> Path:
+        """Directory for ZIP-level CSV data, derived from config file stem.
+
+        For a config at ``configs/healthcare_dfw.toml`` this resolves to
+        ``configs/healthcare_dfw/``.
+        """
+        if self._zip_data_override is not None:
+            return self._zip_data_override
+        if self._config_path is None:
+            raise ValueError("Cannot resolve zip_data: config was not loaded from a file path")
+        return self._config_path.parent / self._config_path.stem
 
 
 def load_config(path: str | Path) -> ReportConfig:
@@ -59,4 +74,5 @@ def load_config(path: str | Path) -> ReportConfig:
         overview_xls=_resolve(manual.get("overview_xls", "")),
         jpa_xls=_resolve(manual.get("jpa_xls", "")),
         occ_csv=_resolve(manual.get("occ_csv", "")),
+        _config_path=path.resolve(),
     )

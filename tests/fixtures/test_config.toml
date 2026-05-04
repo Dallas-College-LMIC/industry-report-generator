@@ -1,0 +1,24 @@
+[report]
+name = "Test Industry"
+output_dir = "./output"
+
+[industry]
+naics_codes = ["6211", "6221"]
+naics_titles = ["Offices of Physicians", "General Medical and Surgical Hospitals"]
+label = "Test Industries"
+
+[occupation]
+soc_codes = ["29-1141", "31-1128"]
+soc_titles = ["Registered Nurses", "Home Health and Personal Care Aides"]
+label = "Test Occupations"
+
+[geography]
+msa_code = "19100"
+msa_name = "Dallas-Fort Worth-Arlington, TX"
+state_code = "48"
+living_wage = 23.36
+
+[manual_inputs]
+overview_xls = ""
+jpa_xls = ""
+occ_csv = ""
