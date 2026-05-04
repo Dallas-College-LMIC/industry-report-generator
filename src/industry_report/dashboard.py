@@ -143,6 +143,148 @@ with tab_msa:
         st.markdown("---")
 
         # -------------------------------------------------------------------
+        # Job Posting Analytics
+        # -------------------------------------------------------------------
+        has_jpa = any(
+            k in sheets
+            for k in (
+                "Notable Employers in DFW",
+                "In-Demand Skills",
+                "Top Common Skills",
+                "Top Software Skills",
+                "Advertised Wage Trend",
+            )
+        )
+
+        if has_jpa:
+            st.subheader("💼 Job Posting Analytics")
+
+            # --- Salary trend ---
+            if "Advertised Wage Trend" in sheets:
+                trend_df = sheets["Advertised Wage Trend"].copy()
+                if "Month" in trend_df.columns and "Advertised Salary" in trend_df.columns:
+                    fig_trend = px.line(
+                        trend_df,
+                        x="Month",
+                        y="Advertised Salary",
+                        title="Advertised Salary Trend",
+                        markers=True,
+                        labels={"Advertised Salary": "Advertised Salary ($/hr)"},
+                    )
+                    fig_trend.update_traces(line_color="#1f77b4", marker_size=8)
+                    fig_trend.update_layout(yaxis_tickprefix="$")
+
+                    # Add postings as secondary axis
+                    if "Job Postings" in trend_df.columns:
+                        from plotly.subplots import make_subplots
+
+                        fig_trend = make_subplots(specs=[[{"secondary_y": True}]])
+                        fig_trend.add_trace(
+                            px.line(
+                                trend_df,
+                                x="Month",
+                                y="Advertised Salary",
+                                markers=True,
+                            )
+                            .update_traces(line_color="#1f77b4", name="Salary ($/hr)")
+                            .data[0],
+                            secondary_y=False,
+                        )
+                        fig_trend.add_trace(
+                            px.bar(trend_df, x="Month", y="Job Postings")
+                            .update_traces(marker_color="#aec7e8", name="Postings", opacity=0.6)
+                            .data[0],
+                            secondary_y=True,
+                        )
+                        fig_trend.update_layout(
+                            title="Advertised Salary Trend & Postings Volume",
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02),
+                        )
+                        fig_trend.update_yaxes(title_text="Salary ($/hr)", secondary_y=False)
+                        fig_trend.update_yaxes(title_text="Postings", secondary_y=True)
+
+                    st.plotly_chart(fig_trend, use_container_width=True)
+
+            jpa_col1, jpa_col2 = st.columns(2)
+
+            # --- Top employers ---
+            if "Notable Employers in DFW" in sheets:
+                emp_df = sheets["Notable Employers in DFW"].copy()
+                postings_col = next((c for c in emp_df.columns if "Unique Postings" in c), None)
+                if postings_col and "Company" in emp_df.columns:
+                    chart = emp_df.head(10).sort_values(postings_col)
+                    fig_emp = px.bar(
+                        chart,
+                        x=postings_col,
+                        y="Company",
+                        orientation="h",
+                        title="Top Employers by Unique Postings",
+                        color=postings_col,
+                        color_continuous_scale="Blues",
+                    )
+                    fig_emp.update_layout(showlegend=False, height=max(300, len(chart) * 30))
+                    jpa_col1.plotly_chart(fig_emp, use_container_width=True)
+
+            # --- In-demand skills ---
+            if "In-Demand Skills" in sheets:
+                skills_df = sheets["In-Demand Skills"].copy()
+                postings_col = next(
+                    (c for c in skills_df.columns if "% of Total Postings" in c), None
+                )
+                if postings_col and "Skills" in skills_df.columns:
+                    chart = skills_df.head(15).sort_values(postings_col)
+                    fig_skills = px.bar(
+                        chart,
+                        x=postings_col,
+                        y="Skills",
+                        orientation="h",
+                        title="Top Specialized Skills",
+                        color=postings_col,
+                        color_continuous_scale="Blues",
+                    )
+                    fig_skills.update_layout(showlegend=False, height=max(300, len(chart) * 28))
+                    jpa_col2.plotly_chart(fig_skills, use_container_width=True)
+
+            # --- Common + Software skills side by side ---
+            skill_col1, skill_col2 = st.columns(2)
+
+            if "Top Common Skills" in sheets:
+                cs_df = sheets["Top Common Skills"].copy()
+                pct_col = next((c for c in cs_df.columns if "% of Total Postings" in c), None)
+                if pct_col and "Skills" in cs_df.columns:
+                    chart = cs_df.head(15).sort_values(pct_col)
+                    fig_cs = px.bar(
+                        chart,
+                        x=pct_col,
+                        y="Skills",
+                        orientation="h",
+                        title="Top Common (Soft) Skills",
+                        color=pct_col,
+                        color_continuous_scale="Blues",
+                    )
+                    fig_cs.update_layout(showlegend=False, height=max(300, len(chart) * 28))
+                    skill_col1.plotly_chart(fig_cs, use_container_width=True)
+
+            if "Top Software Skills" in sheets:
+                sw_df = sheets["Top Software Skills"].copy()
+                pct_col = next((c for c in sw_df.columns if "% of Total Postings" in c), None)
+                if pct_col and "Skills" in sw_df.columns:
+                    chart = sw_df.head(15).sort_values(pct_col)
+                    fig_sw = px.bar(
+                        chart,
+                        x=pct_col,
+                        y="Skills",
+                        orientation="h",
+                        title="Top Software Skills",
+                        color=pct_col,
+                        color_continuous_scale="Blues",
+                    )
+                    fig_sw.update_layout(showlegend=False, height=max(300, len(chart) * 28))
+                    skill_col2.plotly_chart(fig_sw, use_container_width=True)
+
+            st.markdown("---")
+
+        # -------------------------------------------------------------------
         # Sheets as expanders
         # -------------------------------------------------------------------
         st.subheader("📋 Report Sheets")
@@ -235,17 +377,18 @@ with tab_zip:
                 map_df = zip_sheets[chosen_sheet][["ZIP Code", chosen_col]].copy()
                 map_value_col = chosen_col
 
-            fig = px.choropleth(
-                map_df,
-                z=map_value_col,
-                locations="ZIP Code",
-                locationmode="USA-zip",
-                scope="usa",
+            # NOTE: plotly doesn't support USA-zip locationmode natively.
+            # Using a bar chart as a reliable ZIP-level visualization.
+            fig = px.bar(
+                map_df.nlargest(25, map_value_col).sort_values(map_value_col),
+                x=map_value_col,
+                y="ZIP Code",
+                orientation="h",
+                title=f"Top 25 ZIP Codes by {map_value_col}",
+                color=map_value_col,
                 color_continuous_scale="Blues",
-                title=f"{map_value_col} by ZIP Code",
-                labels={map_value_col: map_value_col},
             )
-            fig.update_layout(geo={"center": {"lat": 32.8, "lon": -96.8}, "projection_scale": 4})
+            fig.update_layout(height=600, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
 
         # -------------------------------------------------------------------
