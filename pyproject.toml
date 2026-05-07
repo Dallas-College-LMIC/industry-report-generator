@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dashboard = ["streamlit", "plotly"]
+dashboard = ["streamlit", "plotly", "fredapi", "sodapy"]
 zip = ["censusdis"]
 
 [project.scripts]

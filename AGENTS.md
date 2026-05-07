@@ -29,6 +29,13 @@ config.toml
     │         │
     │         └──→ build_zip.py ──→ ZIP-level analysis sheets (reads CSVs)
     │
+    ├──→ fetch_pulse.py ──→ FRED (UI claims, Dallas Fed, BFS, BLS mirror)
+    │                   ──→ Socrata (WARN notices, TX sales tax)
+    │                   ──→ BLS API (DFW employment)
+    │                   ──→ Census BFS API (business formation)
+    │         │
+    │         └──→ build_pulse.py ──→ pulse DataFrames for dashboard
+    │
     └──→ build.py ──→ OrderedDict of sheet_name → DataFrame
               │
               └──→ export.py ──→ formatted .xlsx workbook
@@ -60,11 +67,13 @@ The directory path is derived from the config file stem via `ReportConfig.zip_da
 | `fetch_corelmi.py` | Lightcast Core LMI queries via `pyghtcast` |
 | `fetch_postings.py` | Lightcast JPA queries via `pyghtcast` (often unavailable) |
 | `fetch_zip.py` | ZIP-level batch fetchers (Lightcast per-ZIP + Census ACS) |
+| `fetch_pulse.py` | **Pulse data fetchers** — FRED, Socrata, BLS, Census BFS APIs |
 | `read_manual.py` | Fallback readers for `.xls`, `.xlsx`, `.csv` exports from Lightcast web UI |
 | `build.py` | Assemble API + fallback data into MSA-level report DataFrames |
 | `build_zip.py` | Assemble pre-fetched CSVs into ZIP-level analysis DataFrames |
+| `build_pulse.py` | **Pulse data assembler** — orchestrates pulse fetchers, computes key metrics |
 | `export.py` | Write formatted workbook via `dclmic_export` |
-| `dashboard.py` | Streamlit dashboard with MSA-Level and ZIP-Level Spatial tabs |
+| `dashboard.py` | Streamlit dashboard with MSA-Level, ZIP-Level Spatial, and **Pulse** tabs |
 
 ---
 
@@ -116,6 +125,19 @@ Any wage at or below `$23.36/hr` (Dallas County living wage for 1 adult) gets a 
 | JPA `post_timeseries` | `fetch_postings.py` | `jpa.xls` | Advertised salary trend |
 
 **Auth**: Core LMI uses `LCAPI_USER` / `LCAPI_PASS` env vars. JPA requires `postings:us` scope (currently unavailable for our credentials; all JPA sheets fall back to manual Excel).
+
+### Pulse Data Sources (frequently-updated economic indicators)
+
+| Dataset | API module | Cadence | API Key |
+|---------|-----------|---------|--------|
+| Texas UI Claims (FRED) | `fetch_pulse.py` | Weekly | `FRED_API_KEY` (required) |
+| Dallas Fed TMOS/TSSOS (FRED) | `fetch_pulse.py` | Monthly | `FRED_API_KEY` |
+| Census Business Formation Stats | `fetch_pulse.py` | Monthly | None (FRED fallback) |
+| BLS Metro CES Employment | `fetch_pulse.py` | Monthly | `BLS_API_KEY` (optional, FRED fallback) |
+| Texas WARN Act Notices (Socrata) | `fetch_pulse.py` | Daily | `SOCRATA_APP_TOKEN` (optional) |
+| TX Sales Tax Allocations (Socrata) | `fetch_pulse.py` | Monthly | `SOCRATA_APP_TOKEN` (optional) |
+
+**Auth**: FRED requires a free API key from `fredaccount.stlouisfed.org`. Socrata works without a token (lower rate limits). BLS has a free key but FRED mirrors most series.
 
 ---
 
@@ -186,6 +208,9 @@ python -m pytest tests/ -v
 **Env vars** (can also live in `.env` at repo root):
 - `LCAPI_USER` — Lightcast API username
 - `LCAPI_PASS` — Lightcast API password
+- `FRED_API_KEY` — FRED API key (required for Pulse tab)
+- `BLS_API_KEY` — BLS API key (optional, FRED mirrors most series)
+- `SOCRATA_APP_TOKEN` — Socrata app token (optional, works without)
 
 ---
 
@@ -209,16 +234,17 @@ industry-report-dashboard
 ### What it does
 
 1. Pick a TOML config from the sidebar (populated from `configs/*.toml`).
-2. Click **"Generate Report from Lightcast"** to fetch fresh data via the existing `build.py` pipeline.
-3. View key metrics, a Plotly wage chart, and every report sheet in expandable tables.
-4. Download the generated Excel workbook.
+2. **MSA-Level Report** tab: Click **"Generate Report from Lightcast"** to fetch fresh data via the existing `build.py` pipeline.
+3. **ZIP-Level Spatial** tab: View pre-fetched ZIP-level analysis from cached CSVs.
+4. **Pulse** tab: View frequently-updated economic indicators (UI claims, WARN notices, Dallas Fed surveys, BLS employment, business formation, sales tax). Data is cached for 1 day.
+5. Download the generated Excel workbook.
 
 ### Deploy to Streamlit Community Cloud
 
 1. Push this repo to a public GitHub repository.
 2. Go to [streamlit.io/cloud](https://streamlit.io/cloud) → **New app**.
 3. Point the app entrypoint to `src/industry_report/dashboard.py`.
-4. Add `LCAPI_USER` and `LCAPI_PASS` as app **Secrets** in the Streamlit Cloud UI.
+4. Add `LCAPI_USER`, `LCAPI_PASS`, and `FRED_API_KEY` as app **Secrets** in the Streamlit Cloud UI.
 5. Deploy. You get a public URL like `https://your-app.streamlit.app`.
 
 **Why this works:** Both `pyghtcast` and `dclmic-export` are public repos, and Streamlit Cloud reads `pyproject.toml` directly. No custom build steps needed.
@@ -283,6 +309,15 @@ The tool is currently hardcoded for DFW (`msa_code = "19100"`, `state_code = "48
 2. Update `fetch_corelmi.py` `fetch_regional_comparison()` to accept the new codes (it already parameterizes them).
 3. Verify JPA filter payloads in `fetch_postings.py` use the correct MSA code.
 
+### Adding a new Pulse data source
+
+1. Add a fetcher function in `fetch_pulse.py`. Follow the pattern: return `pd.DataFrame | None`, wrap in `try/except`.
+2. Wire the fetcher into `build_pulse_data()` in `build_pulse.py`.
+3. If the source provides a key metric, add extraction logic to `compute_key_metrics()`.
+4. Add a panel or metric card in the Pulse tab of `dashboard.py`.
+5. Add mocked tests in `tests/test_pulse.py`.
+6. Update this AGENTS.md.
+
 ---
 
 ## Dependencies & Internal Libraries
@@ -294,6 +329,8 @@ The tool is currently hardcoded for DFW (`msa_code = "19100"`, `state_code = "48
 | `xlrd` | Legacy `.xls` reading (manual fallback) |
 | `pyghtcast` | Lightcast API wrapper (git dep) |
 | `dclmic-export` | Formatted Excel export with auto-styling (git dep) |
+| `fredapi` | FRED API wrapper (UI claims, Dallas Fed, BFS/BLS mirrors) |
+| `sodapy` | Socrata API client (WARN notices, TX sales tax) |
 
 Both git deps are Dallas College LMIC internal packages. If API behavior changes, you may need to patch `pyghtcast` (e.g., the `JobPostingsConnection` class needed `base_url` + `scope` initialization).
 
@@ -304,6 +341,7 @@ Both git deps are Dallas College LMIC internal packages. If API behavior changes
 Tests live in `tests/` and use `pytest`. Key test modules:
 
 - `tests/test_zip_module.py` — ZIP-level module tests (config property, build_zip with fixtures, missing data, CLI flag)
+- `tests/test_pulse.py` — Pulse data fetcher tests (FRED, Socrata, BLS, BFS mocks; build_pulse orchestration; key metrics extraction)
 
 Fixtures are in `tests/fixtures/`:
 

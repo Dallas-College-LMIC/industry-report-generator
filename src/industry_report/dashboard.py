@@ -19,6 +19,7 @@ for p in (str(SRC_ROOT), str(PROJECT_ROOT)):
         sys.path.insert(0, p)
 
 import plotly.express as px  # noqa: E402
+import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
 
 from industry_report.build import build_all_sheets  # noqa: E402
@@ -61,7 +62,7 @@ st.sidebar.markdown("---")
 st.title(f"📊 {config.name} — Industry Report Dashboard")
 st.caption(f"Region: {config.msa_name}  •  MSA: {config.msa_code}")
 
-tab_msa, tab_zip = st.tabs(["MSA-Level Report", "ZIP-Level Spatial"])
+tab_msa, tab_zip, tab_pulse = st.tabs(["MSA-Level Report", "ZIP-Level Spatial", "Pulse"])
 
 # ===========================================================================
 # TAB 1: MSA-Level Report (existing functionality)
@@ -440,3 +441,372 @@ with tab_zip:
             "This is a batch job that fetches data from Lightcast and Census APIs (~30-60 min). "
             "The resulting CSVs will be stored in `configs/<config_stem>/` and will appear here instantly."
         )
+
+# ===========================================================================
+# TAB 3: Pulse — Frequently-Updated Economic Indicators
+# ===========================================================================
+with tab_pulse:
+    import os
+
+    from industry_report.build_pulse import build_pulse_data, compute_key_metrics  # noqa: E402
+    from plotly.subplots import make_subplots  # noqa: E402
+    import plotly.graph_objects as go  # noqa: E402
+
+    has_fred = bool(os.environ.get("FRED_API_KEY"))
+    has_socrata = bool(os.environ.get("SOCRATA_APP_TOKEN"))
+
+    if not has_fred and not has_socrata:
+        st.warning("No API keys configured for Pulse data sources.")
+        st.info(
+            "To enable the Pulse tab, set the following environment variables:\n\n"
+            "| Env var | Source | Registration |\n"
+            "|---|---|---|\n"
+            "| `FRED_API_KEY` | UI claims, Dallas Fed, BFS, BLS | [Register](https://fredaccount.stlouisfed.org) (free, instant) |\n"
+            "| `SOCRATA_APP_TOKEN` | WARN notices, TX sales tax | [Register](https://data.texas.gov/profile/app_tokens) (optional) |\n"
+            "| `BLS_API_KEY` | BLS employment (direct) | [Register](https://data.bls.gov/registrationEngine/) (optional) |\n\n"
+            "Add them to your `.env` file or set them as Streamlit Cloud secrets."
+        )
+
+    # --- Fetch all pulse data (cached for 1 day) ---
+    @st.cache_data(ttl=86400, show_spinner=False)
+    def _fetch_pulse():
+        return build_pulse_data(config)
+
+    with st.spinner("Fetching pulse data from public APIs..."):
+        pulse = _fetch_pulse()
+
+    if not pulse:
+        st.info("No pulse data sources returned data. Check API keys and network connectivity.")
+    else:
+        metrics = compute_key_metrics(pulse)
+        sources_available = len(pulse)
+        st.caption(
+            f"{sources_available} data source{'s' if sources_available != 1 else ''} available"
+        )
+
+        # ----------------------------------------------------------------
+        # Key Metrics Bar
+        # ----------------------------------------------------------------
+        st.subheader("📊 Key Metrics")
+        mc1, mc2, mc3, mc4, mc5, mc6 = st.columns(6)
+
+        mc1.metric(
+            "Initial UI Claims (TX)",
+            f"{metrics.get('ui_initial_claims', '—'):,.0f}"
+            if metrics.get("ui_initial_claims")
+            else "—",
+            f"{metrics.get('ui_initial_claims_wow'):+.1f}%"
+            if metrics.get("ui_initial_claims_wow") is not None
+            else None,
+            delta_color="inverse",
+        )
+        mc2.metric(
+            "WARN Notices (30d)",
+            f"{metrics.get('warn_30day_count', '—')}"
+            if metrics.get("warn_30day_count") is not None
+            else "—",
+            f"{metrics.get('warn_30day_layoffs', 0):,} workers"
+            if metrics.get("warn_30day_layoffs")
+            else None,
+        )
+        mc3.metric(
+            "Dallas Fed Mfg Index",
+            f"{metrics.get('dallas_fed_mfg_index', '—'):+.1f}"
+            if metrics.get("dallas_fed_mfg_index") is not None
+            else "—",
+        )
+        mc4.metric(
+            "DFW Employment",
+            f"{metrics.get('bls_employment_level', '—'):,.0f}"
+            if metrics.get("bls_employment_level")
+            else "—",
+            f"{metrics.get('bls_employment_yoy'):+.1f}% YoY"
+            if metrics.get("bls_employment_yoy") is not None
+            else None,
+        )
+        mc5.metric(
+            "Business Applications (TX)",
+            f"{metrics.get('bfs_business_apps', '—'):,.0f}"
+            if metrics.get("bfs_business_apps")
+            else "—",
+            f"{metrics.get('bfs_yoy'):+.1f}% YoY" if metrics.get("bfs_yoy") is not None else None,
+        )
+        mc6.metric(
+            "Sales Tax YoY (Dallas Co.)",
+            f"{metrics.get('sales_tax_yoy'):+.1f}%"
+            if metrics.get("sales_tax_yoy") is not None
+            else "—",
+        )
+
+        st.markdown("---")
+
+        # ----------------------------------------------------------------
+        # Labor Market Stress Panel
+        # ----------------------------------------------------------------
+        has_stress = "ui_claims" in pulse or "warn_notices" in pulse or "dallas_fed" in pulse
+        if has_stress:
+            st.subheader("🔴 Labor Market Stress")
+
+            stress_col1, stress_col2 = st.columns(2)
+
+            # UI Claims trend
+            if "ui_claims" in pulse:
+                ui = pulse["ui_claims"]
+                initial = ui[ui["series_id"] == "TXICLAIMS"].sort_values("date")
+                if not initial.empty:
+                    fig_ui = go.Figure()
+                    fig_ui.add_trace(
+                        go.Scatter(
+                            x=initial["date"],
+                            y=initial["value"],
+                            name="Initial Claims",
+                            line=dict(color="#1f77b4"),
+                        )
+                    )
+                    if "4wk_ma" in initial.columns:
+                        fig_ui.add_trace(
+                            go.Scatter(
+                                x=initial["date"],
+                                y=initial["4wk_ma"],
+                                name="4-Week MA",
+                                line=dict(color="#ff7f0e", width=2),
+                            )
+                        )
+                    fig_ui.update_layout(
+                        title="Texas Initial UI Claims (Weekly)",
+                        yaxis_title="Claims",
+                        height=400,
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+                    )
+                    stress_col1.plotly_chart(fig_ui, use_container_width=True)
+
+            # WARN notices over time
+            if "warn_notices" in pulse:
+                warn = pulse["warn_notices"]
+                if "month" in warn.columns and not warn.empty:
+                    warn_monthly = (
+                        warn.groupby("month")
+                        .agg(
+                            layoff_count=("layoff_count", "sum"), notices=("layoff_count", "count")
+                        )
+                        .reset_index()
+                    )
+                    fig_warn = px.bar(
+                        warn_monthly,
+                        x="month",
+                        y="layoff_count",
+                        title="WARN Layoffs by Month (DFW Counties)",
+                        labels={"layoff_count": "Workers Affected", "month": ""},
+                    )
+                    fig_warn.update_layout(height=400)
+                    stress_col2.plotly_chart(fig_warn, use_container_width=True)
+
+            # Dallas Fed employment index overlay
+            if "dallas_fed" in pulse:
+                fed = pulse["dallas_fed"]
+                emp_idx = fed[
+                    (fed["survey"] == "Manufacturing") & (fed["series_name"] == "Employment")
+                ].sort_values("date")
+                if not emp_idx.empty:
+                    fig_fed = px.line(
+                        emp_idx,
+                        x="date",
+                        y="value",
+                        title="Dallas Fed Manufacturing Employment Index",
+                        labels={"value": "Index", "date": ""},
+                        markers=True,
+                    )
+                    fig_fed.add_hline(
+                        y=0,
+                        line_dash="dash",
+                        line_color="gray",
+                        annotation_text="Expansion / Contraction",
+                    )
+                    fig_fed.update_layout(height=400)
+                    st.plotly_chart(fig_fed, use_container_width=True)
+
+            st.markdown("---")
+
+        # ----------------------------------------------------------------
+        # Economic Activity Panel
+        # ----------------------------------------------------------------
+        has_econ = "bls_employment" in pulse or "bfs" in pulse or "sales_tax" in pulse
+        if has_econ:
+            st.subheader("💼 Economic Activity")
+
+            econ_col1, econ_col2 = st.columns(2)
+
+            # BLS employment trend
+            if "bls_employment" in pulse:
+                bls = pulse["bls_employment"]
+                total_nf = bls[bls["industry"] == "Total Nonfarm"].sort_values("date")
+                if not total_nf.empty:
+                    fig_bls = px.line(
+                        total_nf,
+                        x="date",
+                        y="value",
+                        title=f"DFW Nonfarm Employment (MSA {config.msa_code})",
+                        labels={"value": "Jobs", "date": ""},
+                        markers=True,
+                    )
+                    fig_bls.update_layout(height=400, yaxis_tickformat=",")
+                    econ_col1.plotly_chart(fig_bls, use_container_width=True)
+
+            # BFS business applications
+            if "bfs" in pulse:
+                bfs = pulse["bfs"].sort_values("date")
+                if not bfs.empty:
+                    fig_bfs = px.bar(
+                        bfs,
+                        x="date",
+                        y="value",
+                        title="TX Business Applications (Monthly)",
+                        labels={"value": "Applications", "date": ""},
+                    )
+                    fig_bfs.update_layout(height=400)
+                    econ_col2.plotly_chart(fig_bfs, use_container_width=True)
+
+            # Sales tax allocations by county
+            if "sales_tax" in pulse:
+                stax = pulse["sales_tax"]
+                if "county" in stax.columns and not stax.empty:
+                    fig_st = px.line(
+                        stax,
+                        x="date",
+                        y="value",
+                        color="county",
+                        title="Sales Tax Allocations by DFW County",
+                        labels={"value": "Allocation ($)", "date": "", "county": "County"},
+                    )
+                    fig_st.update_layout(height=400, yaxis_tickprefix="$", yaxis_tickformat=",")
+                    st.plotly_chart(fig_st, use_container_width=True)
+
+            st.markdown("---")
+
+        # ----------------------------------------------------------------
+        # Employer Sentiment Panel
+        # ----------------------------------------------------------------
+        if "dallas_fed" in pulse:
+            st.subheader("🗣️ Employer Sentiment")
+
+            fed = pulse["dallas_fed"]
+
+            # Multi-line chart: Mfg + Service Sector general business activity
+            gba = fed[fed["series_name"] == "General Business Activity"].sort_values("date")
+            if not gba.empty:
+                fig_sent = px.line(
+                    gba,
+                    x="date",
+                    y="value",
+                    color="survey",
+                    title="General Business Activity Index (Manufacturing vs. Services)",
+                    labels={"value": "Index", "date": "", "survey": "Survey"},
+                    markers=True,
+                )
+                fig_sent.add_hline(y=0, line_dash="dash", line_color="gray")
+                fig_sent.update_layout(height=400)
+                st.plotly_chart(fig_sent, use_container_width=True)
+
+            # Latest survey results table
+            latest_month = fed["date"].max()
+            latest_data = fed[fed["date"] == latest_month]
+            if not latest_data.empty:
+                st.caption(f"Latest survey data: {latest_month.strftime('%B %Y')}")
+                display_cols = ["survey", "series_name", "value"]
+                show_cols = [c for c in display_cols if c in latest_data.columns]
+                st.dataframe(
+                    latest_data[show_cols].rename(
+                        columns={"survey": "Survey", "series_name": "Indicator", "value": "Index"}
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            st.markdown("---")
+
+        # ----------------------------------------------------------------
+        # Recent WARN Notices Table
+        # ----------------------------------------------------------------
+        if "warn_notices" in pulse:
+            st.subheader("⚠️ Recent WARN Notices (DFW)")
+
+            warn = pulse["warn_notices"]
+            cutoff = pd.Timestamp.now() - pd.Timedelta(days=90)
+            if "layoff_date" in warn.columns:
+                recent = warn[warn["layoff_date"] >= cutoff].copy()
+            elif "notice_date" in warn.columns:
+                recent = warn[warn["notice_date"] >= cutoff].copy()
+            else:
+                recent = warn.copy()
+
+            if not recent.empty:
+                # County filter
+                counties_available = (
+                    sorted(recent["county"].dropna().unique()) if "county" in recent.columns else []
+                )
+                if counties_available:
+                    selected_counties = st.multiselect(
+                        "Filter by county",
+                        counties_available,
+                        default=counties_available,
+                        key="warn_county_filter",
+                    )
+                    recent = recent[recent["county"].isin(selected_counties)]
+
+                display_cols = {
+                    "company": "Company",
+                    "county": "County",
+                    "city": "City",
+                    "layoff_count": "Workers Affected",
+                    "notice_date": "Notice Date",
+                    "layoff_date": "Layoff Date",
+                }
+                show_cols = [c for c in display_cols if c in recent.columns]
+                recent_display = recent[show_cols].rename(columns=display_cols)
+                st.dataframe(recent_display, use_container_width=True, hide_index=True)
+                st.caption(f"{len(recent)} notices in the last 90 days")
+            else:
+                st.info("No WARN notices filed in the last 90 days for DFW counties.")
+
+            st.markdown("---")
+
+        # ----------------------------------------------------------------
+        # Data freshness
+        # ----------------------------------------------------------------
+        st.subheader("🕐 Data Freshness")
+        freshness_data = []
+        source_labels = {
+            "ui_claims": "UI Claims (FRED)",
+            "warn_notices": "WARN Notices (Socrata)",
+            "dallas_fed": "Dallas Fed Surveys (FRED)",
+            "sales_tax": "Sales Tax (Socrata)",
+            "bfs": "Business Formation (Census/FRED)",
+            "bls_employment": "BLS Employment (BLS/FRED)",
+        }
+        for key, label in source_labels.items():
+            if key in pulse:
+                df = pulse[key]
+                date_col = (
+                    "date" if "date" in df.columns else "month" if "month" in df.columns else None
+                )
+                if date_col:
+                    latest = pd.to_datetime(df[date_col]).max()
+                    days_ago = (pd.Timestamp.now() - latest).days
+                    staleness = "⚠️ Stale" if days_ago > 60 else "✅ Fresh"
+                    freshness_data.append(
+                        {
+                            "Source": label,
+                            "Latest Data": latest.strftime("%Y-%m-%d"),
+                            "Days Ago": days_ago,
+                            "Status": staleness,
+                        }
+                    )
+
+        if freshness_data:
+            st.dataframe(
+                pd.DataFrame(freshness_data),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("No data sources available to check freshness.")
