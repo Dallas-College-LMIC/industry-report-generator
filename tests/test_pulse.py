@@ -369,6 +369,51 @@ class TestFetchSalesTax:
 
 
 # ---------------------------------------------------------------------------
+# fetch_jpa_postings
+# ---------------------------------------------------------------------------
+
+
+class TestFetchJpaPostings:
+    """Tests for the JPA postings fetcher wrapper."""
+
+    def test_returns_dict_with_all_keys(self):
+        with (
+            patch(
+                "industry_report.fetch_postings.fetch_totals", return_value={"unique_postings": 500}
+            ),
+            patch(
+                "industry_report.fetch_postings.fetch_top_skills",
+                return_value=pd.DataFrame({"Skill": ["Python"], "Postings": [100]}),
+            ),
+            patch(
+                "industry_report.fetch_postings.fetch_top_employers",
+                return_value=pd.DataFrame({"Company": ["Corp"], "Postings": [50]}),
+            ),
+        ):
+            from industry_report.fetch_pulse import fetch_jpa_postings
+
+            result = fetch_jpa_postings(["6211"], "19100")
+            assert result["totals"] == {"unique_postings": 500}
+            assert result["top_skills"] is not None
+            assert result["top_employers"] is not None
+
+    def test_returns_nones_on_failure(self):
+        with (
+            patch(
+                "industry_report.fetch_postings.fetch_totals", side_effect=RuntimeError("no auth")
+            ),
+            patch("industry_report.fetch_postings.fetch_top_skills", return_value=None),
+            patch("industry_report.fetch_postings.fetch_top_employers", return_value=None),
+        ):
+            from industry_report.fetch_pulse import fetch_jpa_postings
+
+            result = fetch_jpa_postings(["6211"], "19100")
+            assert result["totals"] is None
+            assert result["top_skills"] is None
+            assert result["top_employers"] is None
+
+
+# ---------------------------------------------------------------------------
 # build_pulse_data
 # ---------------------------------------------------------------------------
 
@@ -388,6 +433,10 @@ class TestBuildPulseData:
             patch("industry_report.build_pulse.fetch_sales_tax", return_value=None),
             patch("industry_report.build_pulse.fetch_bfs", return_value=None),
             patch("industry_report.build_pulse.fetch_bls_employment", return_value=None),
+            patch(
+                "industry_report.build_pulse.fetch_jpa_postings",
+                return_value={"totals": None, "top_skills": None, "top_employers": None},
+            ),
         ):
             result = build_pulse_data(config)
             assert isinstance(result, dict)
@@ -401,10 +450,36 @@ class TestBuildPulseData:
             patch("industry_report.build_pulse.fetch_sales_tax", return_value=None),
             patch("industry_report.build_pulse.fetch_bfs", return_value=None),
             patch("industry_report.build_pulse.fetch_bls_employment", return_value=None),
+            patch(
+                "industry_report.build_pulse.fetch_jpa_postings",
+                return_value={"totals": None, "top_skills": None, "top_employers": None},
+            ),
         ):
             result = build_pulse_data(config)
             assert "ui_claims" in result
             assert "warn_notices" not in result
+
+    def test_includes_jpa_data(self, config):
+        with (
+            patch("industry_report.build_pulse.fetch_ui_claims", return_value=None),
+            patch("industry_report.build_pulse.fetch_warn_notices", return_value=None),
+            patch("industry_report.build_pulse.fetch_dallas_fed_surveys", return_value=None),
+            patch("industry_report.build_pulse.fetch_sales_tax", return_value=None),
+            patch("industry_report.build_pulse.fetch_bfs", return_value=None),
+            patch("industry_report.build_pulse.fetch_bls_employment", return_value=None),
+            patch(
+                "industry_report.build_pulse.fetch_jpa_postings",
+                return_value={
+                    "totals": {"unique_postings": 500, "unique_companies": 40},
+                    "top_skills": pd.DataFrame({"Skill": ["Python"], "Postings": [100]}),
+                    "top_employers": pd.DataFrame({"Company": ["Corp"], "Postings": [50]}),
+                },
+            ),
+        ):
+            result = build_pulse_data(config)
+            assert "jpa_totals" in result
+            assert "jpa_skills" in result
+            assert "jpa_employers" in result
 
     def test_does_not_crash_on_exceptions(self, config):
         with (
@@ -414,6 +489,10 @@ class TestBuildPulseData:
             patch("industry_report.build_pulse.fetch_sales_tax", return_value=None),
             patch("industry_report.build_pulse.fetch_bfs", return_value=None),
             patch("industry_report.build_pulse.fetch_bls_employment", return_value=None),
+            patch(
+                "industry_report.build_pulse.fetch_jpa_postings",
+                return_value={"totals": None, "top_skills": None, "top_employers": None},
+            ),
         ):
             result = build_pulse_data(config)
             assert isinstance(result, dict)
@@ -495,3 +574,15 @@ class TestComputeKeyMetrics:
         }
         metrics = compute_key_metrics(pulse)
         assert metrics["dallas_fed_mfg_index"] == 3.2
+
+    def test_extracts_jpa_metrics_from_dataframe(self):
+        pulse = {"jpa_totals": pd.DataFrame([{"unique_postings": 1500, "unique_companies": 120}])}
+        metrics = compute_key_metrics(pulse)
+        assert metrics["jpa_unique_postings"] == 1500
+        assert metrics["jpa_unique_companies"] == 120
+
+    def test_extracts_jpa_metrics_from_dict(self):
+        pulse = {"jpa_totals": {"unique_postings": 800, "unique_companies": 60}}
+        metrics = compute_key_metrics(pulse)
+        assert metrics["jpa_unique_postings"] == 800
+        assert metrics["jpa_unique_companies"] == 60

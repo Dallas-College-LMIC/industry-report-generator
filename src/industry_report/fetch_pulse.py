@@ -9,6 +9,7 @@ Data sources
 2. Socrata / Texas Open Data (WARN notices, sales tax allocations)
 3. BLS Public API (DFW employment — direct, with FRED fallback)
 4. Census BFS API (business formation — direct, with FRED fallback)
+5. Lightcast JPA (job postings, skills, employers, salary trend)
 """
 
 from __future__ import annotations
@@ -557,3 +558,46 @@ def fetch_sales_tax(
     except Exception as exc:
         logger.warning("Sales tax fetch failed: %s", exc)
         return None
+
+
+# ---------------------------------------------------------------------------
+# 7. Lightcast JPA (Job Posting Analytics)
+# ---------------------------------------------------------------------------
+
+
+def fetch_jpa_postings(
+    naics_codes: list[str],
+    msa_code: str,
+) -> dict[str, pd.DataFrame | dict | None]:
+    """Fetch JPA data: totals, top skills, top employers.
+
+    Uses the existing ``fetch_postings`` module which talks to the Lightcast
+    JPA API via ``pyghtcast``.
+
+    Returns a dict with keys ``"totals"``, ``"top_skills"``,
+    ``"top_employers"``.  Individual values are ``None`` on failure.
+    """
+    from .fetch_postings import fetch_top_employers, fetch_top_skills, fetch_totals
+
+    result: dict[str, pd.DataFrame | dict | None] = {
+        "totals": None,
+        "top_skills": None,
+        "top_employers": None,
+    }
+
+    try:
+        result["totals"] = fetch_totals(naics_codes, msa_code)
+    except Exception as exc:
+        logger.info("JPA totals failed: %s", exc)
+
+    try:
+        result["top_skills"] = fetch_top_skills(naics_codes, msa_code)
+    except Exception as exc:
+        logger.info("JPA top skills failed: %s", exc)
+
+    try:
+        result["top_employers"] = fetch_top_employers(naics_codes, msa_code)
+    except Exception as exc:
+        logger.info("JPA top employers failed: %s", exc)
+
+    return result

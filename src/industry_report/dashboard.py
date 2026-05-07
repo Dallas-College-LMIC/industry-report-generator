@@ -725,6 +725,96 @@ with tab_pulse:
             st.markdown("---")
 
         # ----------------------------------------------------------------
+        # Job Postings Panel (Lightcast JPA)
+        # ----------------------------------------------------------------
+        has_jpa = "jpa_totals" in pulse or "jpa_skills" in pulse or "jpa_employers" in pulse
+        if has_jpa:
+            st.subheader("💼 Job Postings (Lightcast)")
+
+            jpa_col1, jpa_col2 = st.columns(2)
+
+            # Key JPA metrics
+            if "jpa_totals" in pulse:
+                totals = pulse["jpa_totals"]
+                postings_val = None
+                companies_val = None
+                if isinstance(totals, pd.DataFrame) and not totals.empty:
+                    row = totals.iloc[0]
+                    postings_val = row.get("unique_postings")
+                    companies_val = row.get("unique_companies")
+                elif isinstance(totals, dict):
+                    postings_val = totals.get("unique_postings")
+                    companies_val = totals.get("unique_companies")
+                if postings_val:
+                    jpa_col1.metric("Unique Postings", f"{int(postings_val):,}")
+                if companies_val:
+                    jpa_col2.metric("Companies Posting", f"{int(companies_val):,}")
+
+            # Top employers
+            if "jpa_employers" in pulse:
+                emp_df = pulse["jpa_employers"]
+                postings_col = next(
+                    (
+                        c
+                        for c in emp_df.columns
+                        if "Unique Postings" in c or "unique_postings" in c.lower()
+                    ),
+                    None,
+                )
+                name_col = next(
+                    (
+                        c
+                        for c in emp_df.columns
+                        if "Company" in c or "company" in c.lower() or "name" in c.lower()
+                    ),
+                    emp_df.columns[0],
+                )
+                if postings_col:
+                    chart = emp_df.head(10).sort_values(postings_col)
+                    fig_jpa_emp = px.bar(
+                        chart,
+                        x=postings_col,
+                        y=name_col,
+                        orientation="h",
+                        title="Top Employers by Postings",
+                        color=postings_col,
+                        color_continuous_scale="Blues",
+                    )
+                    fig_jpa_emp.update_layout(showlegend=False, height=max(300, len(chart) * 30))
+                    jpa_col1.plotly_chart(fig_jpa_emp, use_container_width=True)
+
+            # Top skills
+            if "jpa_skills" in pulse:
+                skills_df = pulse["jpa_skills"]
+                pct_col = next(
+                    (
+                        c
+                        for c in skills_df.columns
+                        if "% of Total Postings" in c or "postings" in c.lower()
+                    ),
+                    skills_df.columns[1] if len(skills_df.columns) > 1 else None,
+                )
+                skill_name_col = next(
+                    (c for c in skills_df.columns if "Skill" in c or "skill" in c.lower()),
+                    skills_df.columns[0],
+                )
+                if pct_col:
+                    chart = skills_df.head(15).sort_values(pct_col)
+                    fig_jpa_skills = px.bar(
+                        chart,
+                        x=pct_col,
+                        y=skill_name_col,
+                        orientation="h",
+                        title="Top Specialized Skills",
+                        color=pct_col,
+                        color_continuous_scale="Blues",
+                    )
+                    fig_jpa_skills.update_layout(showlegend=False, height=max(300, len(chart) * 28))
+                    jpa_col2.plotly_chart(fig_jpa_skills, use_container_width=True)
+
+            st.markdown("---")
+
+        # ----------------------------------------------------------------
         # Recent WARN Notices Table
         # ----------------------------------------------------------------
         if "warn_notices" in pulse:
@@ -782,6 +872,9 @@ with tab_pulse:
             "sales_tax": "Sales Tax (Socrata)",
             "bfs": "Business Formation (Census/FRED)",
             "bls_employment": "BLS Employment (BLS/FRED)",
+            "jpa_totals": "Job Postings (Lightcast JPA)",
+            "jpa_skills": "Job Posting Skills (Lightcast JPA)",
+            "jpa_employers": "Job Posting Employers (Lightcast JPA)",
         }
         for key, label in source_labels.items():
             if key in pulse:

@@ -18,6 +18,7 @@ from .fetch_pulse import (
     fetch_bfs,
     fetch_bls_employment,
     fetch_dallas_fed_surveys,
+    fetch_jpa_postings,
     fetch_sales_tax,
     fetch_ui_claims,
     fetch_warn_notices,
@@ -89,6 +90,22 @@ def build_pulse_data(config: ReportConfig) -> dict[str, pd.DataFrame]:
             pulse["bls_employment"] = df
     except Exception as exc:
         logger.info("BLS employment fetch failed: %s", exc)
+
+    # 7. JPA Job Postings (Lightcast)
+    try:
+        jpa = fetch_jpa_postings(config.naics_codes, config.msa_code)
+        if jpa.get("totals") is not None:
+            pulse["jpa_totals"] = (
+                jpa["totals"]
+                if isinstance(jpa["totals"], pd.DataFrame)
+                else pd.DataFrame([jpa["totals"]])
+            )
+        if jpa.get("top_skills") is not None and not jpa["top_skills"].empty:
+            pulse["jpa_skills"] = jpa["top_skills"]
+        if jpa.get("top_employers") is not None and not jpa["top_employers"].empty:
+            pulse["jpa_employers"] = jpa["top_employers"]
+    except Exception as exc:
+        logger.info("JPA fetch failed: %s", exc)
 
     return pulse
 
@@ -175,5 +192,16 @@ def compute_key_metrics(pulse: dict[str, pd.DataFrame]) -> dict[str, Any]:
             latest_st = dallas.iloc[-1]
             metrics["sales_tax_yoy"] = latest_st.get("yoy_pct_change")
             metrics["sales_tax_date"] = latest_st["date"]
+
+    # JPA — postings and employers
+    if "jpa_totals" in pulse:
+        totals = pulse["jpa_totals"]
+        if isinstance(totals, pd.DataFrame) and not totals.empty:
+            row = totals.iloc[0]
+            metrics["jpa_unique_postings"] = row.get("unique_postings")
+            metrics["jpa_unique_companies"] = row.get("unique_companies")
+        elif isinstance(totals, dict):
+            metrics["jpa_unique_postings"] = totals.get("unique_postings")
+            metrics["jpa_unique_companies"] = totals.get("unique_companies")
 
     return metrics

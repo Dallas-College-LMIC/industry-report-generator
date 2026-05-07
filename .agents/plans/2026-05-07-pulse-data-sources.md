@@ -7,30 +7,51 @@
 
 The industry-report-generator currently produces static, point-in-time industry reports from Lightcast data. The dashboard (Streamlit) shows MSA-level report sheets and ZIP-level spatial analysis — both built from batch-fetched data that updates quarterly at best.
 
-Stakeholders (workforce boards, economic development councils, employers, college leadership, students) need **current signals** between annual reports. This plan adds a "Pulse" tab to the dashboard that surfaces frequently-updated economic data from free public APIs, all auto-filtered to the industry and geography from the TOML config.
+Stakeholders (workforce boards, economic development councils, employers, college leadership, students) need **current signals** between annual reports. This plan adds a "Pulse" tab to the dashboard that surfaces frequently-updated economic data from free public APIs plus the existing Lightcast job postings data, all auto-filtered to the industry and geography from the TOML config.
 
 ### Stakeholder questions the pulse tab answers
 
 | Question | Sources that answer it |
 |---|---|
-| "Should we launch a new training program for healthcare?" | BFS (business formation rising?) + Dallas Fed (employers struggling to hire?) + BLS CES (jobs actually growing?) |
+| "Should we launch a new training program for healthcare?" | JPA (postings volume, skills in demand) + BFS (business formation rising?) + Dallas Fed (employers struggling to hire?) + BLS CES (jobs actually growing?) |
 | "Are layoffs about to spike in construction?" | WARN notices (any filings?) + UI claims (trending up?) + Dallas Fed (employment index negative?) |
 | "Is DFW outperforming Texas/the US?" | BLS CES + BFS + UI claims — all with state/national comparison |
-| "Should a student enroll in this program?" | BLS CES (jobs exist) + UI claims (sector isn't contracting) + Dallas Fed (employers hiring) + sales tax (local economy healthy) |
+| "Should a student enroll in this program?" | JPA (employers actively hiring, skills demanded) + BLS CES (jobs exist) + UI claims (sector isn't contracting) + Dallas Fed (employers hiring) + sales tax (local economy healthy) |
+| "What skills are employers looking for right now?" | JPA (in-demand skills, specialized skills, software skills) |
 
 ### Approach: maximalist first iteration
 
-Wire all 8 data sources. Ship the full spread, see what stakeholders actually use, refine based on feedback.
+Wire all 9 data sources (including the existing Lightcast job postings). Ship the full spread, see what stakeholders actually use, refine based on feedback.
 
 ---
 
 ## Data Source Inventory
 
+### Tier 0 — Existing stack, new surface
+
+#### 1. Lightcast Job Postings (JPA)
+
+The strongest single source already in the stack — daily ingestion + dedup, bi-weekly enrichment refresh. Currently buried in the MSA-Level Report tab behind a "Generate Report" button. Needs to be a first-class pulse indicator.
+
+| Aspect | Detail |
+|---|---|
+| **Access** | Already wired via `fetch_postings.py` (JPA API) + `read_manual.py` (Excel fallback) |
+| **Cadence** | Daily ingestion, bi-weekly enrichment refresh |
+| **API** | Lightcast JPA (`postings:us` scope) — currently unavailable for our credentials |
+| **Fallback** | Manual `.xls` export from Lightcast web UI via `read_manual.py` |
+| **Existing functions** | `fetch_totals()` (unique postings, companies, salary), `fetch_top_skills()`, `fetch_top_employers()`, `fetch_salary_trend()` |
+| **Manual fallbacks** | `read_jpa_totals()`, `read_employers()`, `read_skills()`, `read_salary_trend()`, `read_employers_competing()` |
+| **Env vars** | `LCAPI_USER`, `LCAPI_PASS` (already configured) |
+
+**What this adds to Pulse:** Job posting volume trend over time, unique employers competing for talent, advertised salary trend, in-demand skills — all specific to the configured NAICS codes and MSA. This is the most industry-specific signal in the entire pulse dashboard; every other source is regional/state-level. The JPA data is the one that answers "what's happening in *this* industry right now?"
+
+**Constraint:** JPA API scope (`postings:us`) is currently unavailable. All JPA data flows through manual Excel fallbacks. The pulse tab should call the same code path (`build.py` → `read_manual.py`) and surface whatever's available.
+
 ### Tier 1 — Easy (REST APIs, free, well-documented)
 
-#### 1. FRED API (Aggregator)
+#### 2. FRED API (Aggregator)
 
-The single most valuable integration. One API key gets you UI claims, Dallas Fed survey series, Census BFS, and more.
+The single most valuable *new* integration. One API key gets you UI claims, Dallas Fed survey series, Census BFS, and more.
 
 | Aspect | Detail |
 |---|---|
@@ -40,7 +61,7 @@ The single most valuable integration. One API key gets you UI claims, Dallas Fed
 | **Key series** | `TXICLAIMS` (initial UI claims TX), `TXCCLAIMS` (continued claims TX), `TXINSUREDUR` (insured unemployment rate TX), ~160 Dallas Fed TMOS/TSSOS/TROS series, BFS series (release rid=443) |
 | **Env var** | `FRED_API_KEY` |
 
-#### 2. Texas WARN Act Notices (Socrata)
+#### 3. Texas WARN Act Notices (Socrata)
 
 Daily, leading indicator — Dallas Fed research shows WARN spikes precede unemployment bumps by ~2 months.
 
@@ -54,7 +75,7 @@ Daily, leading indicator — Dallas Fed research shows WARN spikes precede unemp
 | **Fields** | `notice_date`, `job_site_name`, `county_name`, `wda_name`, `total_layoff_number`, `layoff_date`, `city_name` |
 | **Env var** | `SOCRATA_APP_TOKEN` (optional) |
 
-#### 3. Texas UI Claims via FRED
+#### 4. Texas UI Claims via FRED
 
 Weekly, near real-time. Three FRED series IDs cover the full picture.
 
@@ -64,7 +85,7 @@ Weekly, near real-time. Three FRED series IDs cover the full picture.
 | **Cadence** | Weekly |
 | **Integration** | Same `fredapi` call as FRED general |
 
-#### 4. Dallas Fed Outlook Surveys
+#### 5. Dallas Fed Outlook Surveys
 
 Monthly sentiment/expectations data. Available via two paths: FRED series (easiest) or direct XLS download from Dallas Fed website (full detail).
 
@@ -76,7 +97,7 @@ Monthly sentiment/expectations data. Available via two paths: FRED series (easie
 | **Workforce relevance** | Survey includes hiring difficulties, labor shortages, recruitment strategies |
 | **Integration** | `fredapi` for key indexes; `pandas.read_excel()` for full breakdown |
 
-#### 5. Texas Comptroller Sales Tax Allocations (Socrata)
+#### 6. Texas Comptroller Sales Tax Allocations (Socrata)
 
 Monthly (2-month real-economy lag). Proxy for consumer/commercial activity, especially retail/hospitality/construction.
 
@@ -91,7 +112,7 @@ Monthly (2-month real-economy lag). Proxy for consumer/commercial activity, espe
 
 ### Tier 2 — Moderate effort
 
-#### 6. Census Business Formation Statistics (BFS)
+#### 7. Census Business Formation Statistics (BFS)
 
 Monthly, 11-12 day lag. Leading indicator for new business activity and future job creation.
 
@@ -103,7 +124,7 @@ Monthly, 11-12 day lag. Leading indicator for new business activity and future j
 | **Also on FRED** | Key BFS series mirrored on FRED (release rid=443) — can use `fredapi` instead |
 | **Granularity** | By NAICS sector, by state, by county |
 
-#### 7. BLS Metro CES (DFW Nonfarm Payroll by Industry)
+#### 8. BLS Metro CES (DFW Nonfarm Payroll by Industry)
 
 Monthly, 6-7 week lag. Authoritative employment counts — the "official number."
 
@@ -119,7 +140,7 @@ Monthly, 6-7 week lag. Authoritative employment counts — the "official number.
 
 ### Tier 3 — Harder / deferred
 
-#### 8. TWC Weekly Claims by County / Industry
+#### 9. TWC Weekly Claims by County / Industry
 
 The industry-cut data would be directly usable but there's no clean API.
 
@@ -143,14 +164,15 @@ st.tabs(["MSA-Level Report", "ZIP-Level Spatial", "Pulse"])
 
 ### Layout
 
-1. **Key Metrics Bar** — latest UI claims, 30-day WARN count, latest Dallas Fed employment index, latest BLS jobs number, monthly BFS change, sales tax YoY
-2. **Labor Market Stress Panel** — UI claims trend (2-3 years) + WARN notices over time + Dallas Fed employment index overlay
-3. **Economic Activity Panel** — BLS employment trend + BFS business applications + sales tax allocations by county
-4. **Employer Sentiment Panel** — Dallas Fed survey results (manufacturing + service sector indexes, hiring difficulty question)
-5. **Recent WARN Notices Table** — filterable, recent 90 days, highlight sector-relevant entries matching config NAICS codes
+1. **Key Metrics Bar** — job postings count, employers competing, latest UI claims, 30-day WARN count, latest Dallas Fed employment index, latest BLS jobs number, monthly BFS change, sales tax YoY
+2. **Job Posting Activity Panel** — posting volume trend, unique employers, advertised salary trend, in-demand skills (all from existing Lightcast JPA data, industry-specific)
+3. **Labor Market Stress Panel** — UI claims trend (2-3 years) + WARN notices over time + Dallas Fed employment index overlay
+4. **Economic Activity Panel** — BLS employment trend + BFS business applications + sales tax allocations by county
+5. **Employer Sentiment Panel** — Dallas Fed survey results (manufacturing + service sector indexes, hiring difficulty question)
+6. **Recent WARN Notices Table** — filterable, recent 90 days, highlight sector-relevant entries matching config NAICS codes
 
 All auto-filtered to the industry/geography from TOML config where possible:
-- NAICS codes → filter BFS/BLS by sector
+- NAICS codes → filter BFS/BLS by sector **+ job postings (already filtered by JPA payload)**
 - Counties (Dallas, Tarrant, Collin, Denton) → filter sales tax/WARN
 - State (TX) → filter UI claims, Dallas Fed
 
@@ -179,6 +201,19 @@ All auto-filtered to the industry/geography from TOML config where possible:
   - All functions accept `config: ReportConfig` so they can use `config.msa_code`, `config.state_code`, `config.naics_codes`, etc.
 
 - [x] **Update `AGENTS.md`** with pulse module documentation
+
+### Phase 0.5 — Lightcast Job Postings (existing stack)
+
+- [ ] **Add job posting pulse fetcher to `fetch_pulse.py`**
+  - `fetch_job_posting_pulse(config)` — calls existing `fetch_totals()`, `fetch_top_employers()`, `fetch_top_skills()`, `fetch_salary_trend()` from `fetch_postings.py`
+  - Falls back to `read_manual.py` functions: `read_jpa_totals()`, `read_employers()`, `read_skills()`, `read_salary_trend()`, `read_employers_competing()`
+  - Returns a dict of DataFrames: `"posting_totals"`, `"top_employers"`, `"top_skills"`, `"salary_trend"`, `"employers_competing"`
+  - Follows the same API-first, manual-fallback, return-None-on-failure pattern as `build.py`
+
+- [ ] **Write tests for job posting pulse fetcher**
+  - Mock `fetch_postings` functions to test the pulse wrapper
+  - Mock `read_manual` functions to test fallback chain
+  - Test that all-None (no JPA access, no manual files) returns gracefully
 
 ### Phase 1 — FRED API (highest value, covers 3 sources)
 
@@ -258,7 +293,7 @@ All auto-filtered to the industry/geography from TOML config where possible:
 - [x] **Create `src/industry_report/build_pulse.py`** — new module
   - `build_pulse_data(config) -> dict[str, pd.DataFrame]` — calls all fetchers, assembles DataFrames
   - Does NOT return OrderedDict of "sheets" — instead returns a dict of named DataFrames for the dashboard to render directly
-  - Each key is a section name: `"ui_claims"`, `"warn_notices"`, `"dallas_fed"`, `"sales_tax"`, `"bfs"`, `"bls_employment"`
+  - Each key is a section name: `"job_postings"`, `"ui_claims"`, `"warn_notices"`, `"dallas_fed"`, `"sales_tax"`, `"bfs"`, `"bls_employment"`
   - All fetcher calls wrapped in try/except; missing sources simply don't appear
 
 - [x] **Derive cross-source metrics**
@@ -272,7 +307,9 @@ All auto-filtered to the industry/geography from TOML config where possible:
   - `st.tabs(["MSA-Level Report", "ZIP-Level Spatial", "Pulse"])`
 
 - [x] **Implement Key Metrics Bar**
-  - `st.columns(6)` with `st.metric()` for:
+  - `st.columns(8)` with `st.metric()` for:
+    - **Job postings (monthly avg)** — from Lightcast JPA
+    - **Employers competing** — unique companies posting
     - Latest initial UI claims (+ WoW change)
     - 30-day WARN notice count
     - Dallas Fed employment index (latest)
@@ -280,6 +317,14 @@ All auto-filtered to the industry/geography from TOML config where possible:
     - Monthly BFS change
     - Sales tax YoY change (Dallas County)
   - Each metric shows `—` if data unavailable
+
+- [x] **Implement Job Posting Activity Panel**
+  - Plotly line chart: Advertised salary trend over time (from `read_salary_trend` / `fetch_salary_trend`)
+  - Plotly dual-axis chart: Posting volume + unique employers over time (from `read_jpa_totals` / `fetch_totals`)
+  - Top skills bar chart (from `read_skills` / `fetch_top_skills`)
+  - Top employers bar chart (from `read_employers` / `fetch_top_employers`)
+  - This is the most industry-specific panel — everything here is filtered to config NAICS + MSA
+  - Falls back gracefully if JPA API is down and no manual files are configured (show info message)
 
 - [x] **Implement Labor Market Stress Panel**
   - Plotly line chart: UI initial claims + 4-week moving average (2-3 year history)
@@ -305,12 +350,14 @@ All auto-filtered to the industry/geography from TOML config where possible:
 
 - [x] **Add data freshness indicators**
   - Each section shows "Last updated: [date]" from the most recent observation
+  - Job postings: show enrichment refresh date if available
   - If data is > 2 periods stale, show a warning
 
 ### Phase 6 — Polish & Deploy
 
 - [x] **Add caching to pulse fetchers**
   - Use `@st.cache_data(ttl=...)` in the dashboard for each pulse fetcher
+  - Job postings: cache 1 day
   - UI claims: cache 1 day (weekly data)
   - WARN notices: cache 1 day
   - Dallas Fed: cache 1 day (monthly data)
@@ -341,9 +388,11 @@ All auto-filtered to the industry/geography from TOML config where possible:
 src/industry_report/
   cli.py                       ← add FRED_API_KEY, SOCRATA_APP_TOKEN to env docs
   config.py                    ← unchanged (may add DFW county list helper)
-  fetch_pulse.py               ← NEW: all pulse data fetchers
+  fetch_pulse.py               ← NEW: all pulse data fetchers (incl. job posting wrapper)
   build_pulse.py               ← NEW: assemble pulse DataFrames for dashboard
-  dashboard.py                 ← add Pulse tab with 5 panels + key metrics bar
+  dashboard.py                 ← add Pulse tab with 6 panels + key metrics bar
+  fetch_postings.py            ← existing, called by fetch_pulse.py
+  read_manual.py               ← existing, called by fetch_pulse.py as fallback
   ...existing modules...
 ```
 
@@ -354,6 +403,8 @@ src/industry_report/
 | `fredapi` | FRED API wrapper | UI claims, Dallas Fed surveys, BFS (mirror), BLS (mirror) |
 | `sodapy` | Socrata API client | WARN notices, TX sales tax allocations |
 
+No new dependency needed for job postings — it reuses the existing `fetch_postings.py` and `read_manual.py` code paths.
+
 ## Required API Keys
 
 | Key | Registration | Env var | Required? |
@@ -361,9 +412,11 @@ src/industry_report/
 | FRED API key | `fredaccount.stlouisfed.org` (instant) | `FRED_API_KEY` | Yes (covers 4+ sources) |
 | BLS API key | `data.bls.gov/registrationEngine/` (email) | `BLS_API_KEY` | No (can use FRED mirrors) |
 | Socrata app token | `data.texas.gov/profile/app_tokens` | `SOCRATA_APP_TOKEN` | No (works without, lower rate limits) |
+| Lightcast credentials | Dallas College LMIC internal | `LCAPI_USER` / `LCAPI_PASS` | Already configured |
 
 ## Risks / Open Questions
 
+- **JPA API scope unavailable**: `postings:us` scope is not available with current credentials. All JPA data flows through manual Excel fallbacks. The pulse tab must handle the case where no manual files are configured (show info message, not crash).
 - **BLS Metro CES discontinuations**: ~900 series were cut in Jan 2026. Need to verify which DFW industry series still exist before building UI around them. May need to fall back to state-level BLS data.
 - **TWC county/industry UI claims**: No API found. Deferred to a future iteration. State-level via FRED is the starting point.
 - **Dallas Fed special questions**: The hiring-difficulty questions appear intermittently (not every month). Need to handle missing data gracefully.
