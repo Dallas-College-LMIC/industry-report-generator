@@ -9,10 +9,13 @@ dependencies = [
     "xlrd>=2.0.1",
     "pyghtcast",
     "dclmic-export",
+    "fredapi",
+    "sodapy",
+    "requests",
 ]
 
 [project.optional-dependencies]
-dashboard = ["streamlit", "plotly", "fredapi", "sodapy"]
+dashboard = ["streamlit", "plotly"]
 zip = ["censusdis"]
 
 [project.scripts]

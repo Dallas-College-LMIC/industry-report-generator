@@ -7,6 +7,7 @@ Or via the installed console script:
     industry-report-dashboard run src/industry_report/dashboard.py
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -25,6 +26,11 @@ import streamlit as st  # noqa: E402
 from industry_report.build import build_all_sheets  # noqa: E402
 from industry_report.config import load_config  # noqa: E402
 from industry_report.export import export_workbook  # noqa: E402
+
+# Load .env so API keys are available
+from industry_report.cli import _load_env  # noqa: E402
+
+_load_env()
 
 st.set_page_config(
     page_title="Industry Report Dashboard",

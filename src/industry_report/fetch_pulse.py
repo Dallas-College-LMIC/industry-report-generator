@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+import urllib.parse
 from datetime import datetime, timedelta
 from typing import Sequence
 
@@ -93,7 +94,7 @@ def fetch_fred_series(
         return None
 
     try:
-        fred = _Fred(api_key=key, api_key_backup=key)
+        fred = _Fred(api_key=key)
     except Exception as exc:
         logger.warning("Could not initialise fredapi: %s", exc)
         return None
@@ -167,23 +168,26 @@ def fetch_ui_claims(api_key: str | None = None) -> pd.DataFrame | None:
 # ---------------------------------------------------------------------------
 
 # Key TMOS (Texas Manufacturing Outlook Survey) series on FRED
+# Seasonally adjusted (SA) diffusion indexes
 TMOS_SERIES = {
-    "TXBOSIRG": "General Business Activity",
-    "TXBOSIRE": "Employment",
-    "TXBOSIRP": "Production",
-    "TXBOSIRW": "Wages",
-    "TXBOSIC": "Capacity Utilization",
-    "TXBOSISU": "Supplier Delivery Time",
-    "TXBOSIRN": "New Orders",
+    "BACTSAMFRBDAL": "General Business Activity",
+    "NEMPSAMFRBDAL": "Employment",
+    "VNWOSAMFRBDAL": "New Orders",
+    "PRMISAMFRBDAL": "Prices Paid for Raw Materials",
+    "FCEXPSAMFRBDAL": "Future Capital Expenditures",
+    "FBACTSAMFRBDAL": "Future General Business Activity",
+    "FNEMPSAMFRBDAL": "Future Employment",
 }
 
 # Key TSSOS (Texas Service Sector Outlook Survey) series on FRED
+# Seasonally adjusted (SA) diffusion indexes
 TSSOS_SERIES = {
-    "TXBOSIRGS": "General Business Activity",
-    "TXBOSIRES": "Employment",
-    "TXBOSIRPS": "Production",
-    "TXBOSIRWS": "Wages",
-    "TXBOSIRNS": "New Orders",
+    "TSSOSBACTSAMFRBDAL": "General Business Activity",
+    "TSSOSNEMPSAMFRBDAL": "Employment",
+    "TSSOSNWOSAMFRBDAL": "New Orders",
+    "TSSOSPRMISAMFRBDAL": "Prices Paid",
+    "TSSOSFBACTSAMFRBDAL": "Future General Business Activity",
+    "TSSOSFNEMPSAMFRBDAL": "Future Employment",
 }
 
 
@@ -237,7 +241,22 @@ def fetch_bfs(
 
     Returns a DataFrame with monthly business application counts.
     """
-    # --- Primary: Census API ---
+    # --- Primary: FRED (most reliable for BFS data) ---
+    # Business Applications: Total for All NAICS in Texas, Seasonally Adjusted
+    raw = fetch_fred_series("BABATOTALSATX", api_key=api_key)
+    if raw is not None and not raw.empty:
+        raw["series_name"] = "Business Applications (TX)"
+        raw["yoy_pct_change"] = (
+            raw.sort_values("date")
+            .set_index("date")["value"]
+            .pct_change(12)
+            .mul(100)
+            .round(2)
+            .values
+        )
+        return raw
+
+    # --- Fallback: Census BFS API ---
     try:
         url = "https://api.census.gov/data/timeseries/eits/bfs"
         params = {
@@ -271,23 +290,8 @@ def fetch_bfs(
             )
             return df[["date", "value", "series_name", "yoy_pct_change"]].dropna(subset=["value"])
     except Exception as exc:
-        logger.info("Census BFS API failed, trying FRED: %s", exc)
+        logger.info("Census BFS API also failed: %s", exc)
 
-    # --- Fallback: FRED ---
-    # FRED has BFS series like "BFS4288BA" (TX total BA, seasonally adjusted)
-    fred_sid = f"BFS{state_code}88BA"  # may or may not exist
-    raw = fetch_fred_series(fred_sid, api_key=api_key)
-    if raw is not None and not raw.empty:
-        raw["series_name"] = "Business Applications (TX, FRED)"
-        raw["yoy_pct_change"] = (
-            raw.sort_values("date")
-            .set_index("date")["value"]
-            .pct_change(12)
-            .mul(100)
-            .round(2)
-            .values
-        )
-        return raw
     return None
 
 
@@ -308,10 +312,10 @@ def fetch_bls_employment(
     """
     bls_key = api_key or os.environ.get("BLS_API_KEY")
 
-    # BLS series IDs for MSA: SMSU{MSA}00000000000001 (total nonfarm)
-    # Format: SM + U + MSA + 00000000000001
-    # We'll try a few key industry supersectors
-    prefix = f"SMU{msa_code}0000000"
+    # BLS series IDs for DFW MSA (19100)
+    # Format: SMU{state}{msa}0000000000{industry_code}
+    # State=48, MSA=19100
+    prefix = "SMU4819100"
     series_map = {
         f"{prefix}00000001": "Total Nonfarm",
         f"{prefix}05000001": "Total Private",
@@ -390,8 +394,8 @@ def fetch_bls_employment(
         logger.info("BLS API failed, trying FRED: %s", exc)
 
     # --- Fallback: FRED ---
-    # Try the total nonfarm series on FRED
-    fred_sid = f"SMSU{msa_code}00000000000001"
+    # DFW Total Nonfarm Employment on FRED
+    fred_sid = "DALL148NA"
     raw = fetch_fred_series(fred_sid, api_key=os.environ.get("FRED_API_KEY"))
     if raw is not None and not raw.empty:
         raw["industry"] = "Total Nonfarm"
@@ -445,12 +449,13 @@ def fetch_warn_notices(
             )
         else:
             # Fallback: plain CSV download via Socrata API URL
+            where_clause = f"layoff_date > '{cutoff}' AND county_name in ({county_filter})"
             url = (
                 f"https://data.texas.gov/resource/8w53-c4f6.csv?"
-                f"$where=layoff_date > '{cutoff}' AND county_name in ({county_filter})"
+                f"$where={urllib.parse.quote(where_clause)}"
                 f"&$limit=10000"
             )
-            results = pd.read_csv(url, timeout=20).to_dict("records")
+            results = pd.read_csv(url).to_dict("records")
 
         if not results:
             return None
@@ -506,7 +511,6 @@ def fetch_sales_tax(
     if counties is None:
         counties = DFW_COUNTIES[:4]  # Dallas, Tarrant, Collin, Denton
 
-    cutoff = (datetime.now() - timedelta(days=30 * months_back)).strftime("%Y-%m-%d")
     county_filter = ", ".join(f"'{c}'" for c in counties)
 
     try:
@@ -515,17 +519,18 @@ def fetch_sales_tax(
         if _Socrata is not None:
             client = _Socrata("data.texas.gov", app_token or None, timeout=20)
             results = client.get(
-                "qsh8-tby8",
-                where=f"month_of_allocation > '{cutoff}' AND county_name in ({county_filter})",
+                "53pa-m7sm",
+                where=f"county in ({county_filter})",
                 limit=10_000,
             )
         else:
+            where_clause = f"county in ({county_filter})"
             url = (
-                f"https://data.texas.gov/resource/qsh8-tby8.csv?"
-                f"$where=month_of_allocation > '{cutoff}' AND county_name in ({county_filter})"
+                f"https://data.texas.gov/resource/53pa-m7sm.csv?"
+                f"$where={urllib.parse.quote(where_clause)}"
                 f"&$limit=10000"
             )
-            results = pd.read_csv(url, timeout=20).to_dict("records")
+            results = pd.read_csv(url).to_dict("records")
 
         if not results:
             return None
@@ -534,15 +539,19 @@ def fetch_sales_tax(
 
         # Normalise columns
         col_map = {
-            "county_name": "county",
-            "month_of_allocation": "date",
-            "amount": "value",
-            "allocation_amount": "value",
+            "county": "county",
+            "net_payment_this_period": "value",
+            "report_month": "month",
+            "report_year": "year",
         }
         df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
 
-        if "date" in df.columns:
-            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        # Build date from report_year + report_month
+        if "year" in df.columns and "month" in df.columns:
+            df["date"] = pd.to_datetime(
+                df["year"].astype(str) + "-" + df["month"].astype(str) + "-01",
+                errors="coerce",
+            )
         if "value" in df.columns:
             df["value"] = pd.to_numeric(df["value"], errors="coerce")
 

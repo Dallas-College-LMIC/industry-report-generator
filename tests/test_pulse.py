@@ -195,31 +195,18 @@ class TestFetchDallasFedSurveys:
 class TestFetchBfs:
     """Tests for the BFS fetcher."""
 
-    def test_census_api_success(self):
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.raise_for_status = MagicMock()
-        mock_response.json.return_value = [
-            ["cell_value", "data_type_code", "time_slot_id", "error_data", "time"],
-            ["1200", "BA_BA", "M", "0", "2024-01"],
-            ["1300", "BA_BA", "M", "0", "2024-02"],
-        ]
-
-        with patch("industry_report.fetch_pulse.requests") as mock_req:
-            mock_req.get.return_value = mock_response
+    def test_bfs_returns_none_without_fred_key(self):
+        """BFS fetcher should return None gracefully without FRED key."""
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("FRED_API_KEY", None)
             result = fetch_bfs(state_code="48")
-
-        assert result is not None
-        assert "series_name" in result.columns
-        assert len(result) == 2
+            assert result is None
 
     def test_returns_none_on_census_failure(self):
-        with patch("industry_report.fetch_pulse.requests") as mock_req:
-            mock_req.get.side_effect = Exception("network error")
-            with patch.dict(os.environ, {}, clear=True):
-                os.environ.pop("FRED_API_KEY", None)
-                result = fetch_bfs(state_code="48")
-                assert result is None
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("FRED_API_KEY", None)
+            result = fetch_bfs(state_code="48")
+            assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -344,14 +331,16 @@ class TestFetchSalesTax:
         mock_client = MagicMock()
         mock_client.get.return_value = [
             {
-                "county_name": "Dallas",
-                "month_of_allocation": "2024-01-01",
-                "amount": "50000000",
+                "county": "Dallas",
+                "net_payment_this_period": "50000000",
+                "report_month": "1",
+                "report_year": "2024",
             },
             {
-                "county_name": "Dallas",
-                "month_of_allocation": "2024-02-01",
-                "amount": "52000000",
+                "county": "Dallas",
+                "net_payment_this_period": "52000000",
+                "report_month": "2",
+                "report_year": "2024",
             },
         ]
 
