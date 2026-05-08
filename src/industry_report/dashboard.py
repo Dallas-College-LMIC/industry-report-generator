@@ -27,7 +27,16 @@ from industry_report.build import build_all_sheets  # noqa: E402
 from industry_report.config import load_config  # noqa: E402
 from industry_report.export import export_workbook  # noqa: E402
 
-# Load .env so API keys are available
+# Surface Streamlit Cloud secrets as env vars so fetchers can find them.
+# Local dev uses .env / .envrc instead.
+try:
+    for _key in ("FRED_API_KEY", "BLS_API_KEY", "SOCRATA_APP_TOKEN", "LCAPI_USER", "LCAPI_PASS"):
+        if _key in st.secrets and _key not in os.environ:
+            os.environ[_key] = st.secrets[_key]
+except st.errors.StreamlitAPIException:
+    pass  # no secrets file — local dev
+
+# Load .env so API keys are available (local dev)
 from industry_report.cli import _load_env  # noqa: E402
 
 _load_env()

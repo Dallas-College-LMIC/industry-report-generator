@@ -92,12 +92,12 @@
               if [[ ! -d .venv ]]; then
                 echo "Creating Python virtual environment..."
                 uv venv
-                uv sync
+                uv sync --all-extras
               else
                 source .venv/bin/activate
                 if [[ pyproject.toml -nt .venv ]]; then
                   echo "Dependencies may have changed, running uv sync..."
-                  uv sync
+                  uv sync --all-extras
                 fi
               fi
             '';
