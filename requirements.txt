@@ -1,0 +1,9 @@
+git+https://github.com/Dallas-College-LMIC/pyghtcast.git
+git+https://github.com/Dallas-College-LMIC/dclmic-export.git
+fredapi
+sodapy
+requests
+pandas
+openpyxl
+xlrd
+plotly
