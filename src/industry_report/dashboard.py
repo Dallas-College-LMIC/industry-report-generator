@@ -83,21 +83,54 @@ tab_msa, tab_zip, tab_pulse = st.tabs(["MSA-Level Report", "ZIP-Level Spatial", 
 # TAB 1: MSA-Level Report (existing functionality)
 # ===========================================================================
 with tab_msa:
-    if st.button("🔄 Generate Report from Lightcast", type="primary", use_container_width=True):
+    from industry_report.cache import cache_age_hours, load_sheets_cache, save_sheets_cache  # noqa: E402
+
+    # Try to load from cache first (instant, no API calls)
+    sheets = load_sheets_cache(config)
+    cache_hours = cache_age_hours(config)
+
+    if sheets:
+        cache_days = cache_hours / 24 if cache_hours else None
+        age_label = f"{cache_days:.1f} days old" if cache_days else "age unknown"
+        st.caption(f"📂 Loaded from cache ({age_label}, {len(sheets)} sheets)")
+
+        col_refresh, col_spacer = st.columns([1, 4])
+        refresh = col_refresh.button("🔄 Refresh from Lightcast", type="secondary")
+    else:
+        refresh = st.button(
+            "🔄 Generate Report from Lightcast", type="primary", use_container_width=True
+        )
+
+    if refresh:
         with st.spinner("Fetching data from Lightcast APIs..."):
             try:
-                sheets = build_all_sheets(config)
+                fresh_sheets = build_all_sheets(config)
             except Exception as e:
                 st.error(f"Failed to build report: {e}")
-                st.stop()
+                fresh_sheets = None
 
-        if not sheets:
+        if fresh_sheets:
+            sheets = fresh_sheets
+            save_sheets_cache(config, sheets)
+            st.success(f"Built {len(sheets)} sheets and updated cache.")
+        else:
             st.error(
                 "No data could be fetched. Check API credentials and/or manual input file paths."
             )
-            st.stop()
+            # Fall back to stale cache if available
+            if not sheets:
+                stale = load_sheets_cache(config, max_age_seconds=0)
+                if stale:
+                    sheets = stale
+                    st.warning(f"Showing stale cache ({len(stale)} sheets).")
+                else:
+                    st.stop()
 
-        st.success(f"Built {len(sheets)} sheets.")
+    if not sheets:
+        st.info(
+            "Select a config from the sidebar and click **Generate Report from Lightcast** to begin."
+        )
+        st.stop()
 
         # -------------------------------------------------------------------
         # Quick metrics (if available)
@@ -482,13 +515,53 @@ with tab_pulse:
             "Add them to your `.env` file or set them as Streamlit Cloud secrets."
         )
 
-    # --- Fetch all pulse data (cached for 1 day) ---
-    @st.cache_data(ttl=86400, show_spinner=False)
-    def _fetch_pulse():
-        return build_pulse_data(config)
+    # --- Fetch all pulse data ---
+    # Try disk cache first (survives Streamlit Cloud restarts)
+    import json
+    import time
 
-    with st.spinner("Fetching pulse data from public APIs..."):
-        pulse = _fetch_pulse()
+    pulse_cache_path = config.zip_data / ".cache" / "pulse"
+    pulse_cache_path.mkdir(parents=True, exist_ok=True)
+
+    def _load_pulse_disk():
+        """Load pulse data from disk cache."""
+        manifest = pulse_cache_path / "_manifest.json"
+        if not manifest.exists():
+            return None
+        import json
+        import time
+
+        try:
+            meta = json.loads(manifest.read_text())
+            age = time.time() - meta.get("timestamp", 0)
+            if age > 86400:  # 1 day TTL
+                return None
+        except Exception:
+            return None
+        pulse = {}
+        for key in meta.get("keys", []):
+            path = pulse_cache_path / f"{key}.csv"
+            if path.exists():
+                try:
+                    pulse[key] = pd.read_csv(path)
+                except Exception:
+                    pass
+        return pulse if pulse else None
+
+    def _save_pulse_disk(pulse: dict):
+        """Save pulse data to disk cache."""
+        for key, df in pulse.items():
+            if df is not None and not df.empty:
+                df.to_csv(pulse_cache_path / f"{key}.csv", index=False)
+        manifest = {"timestamp": time.time(), "keys": list(pulse.keys())}
+        (pulse_cache_path / "_manifest.json").write_text(json.dumps(manifest))
+
+    pulse = _load_pulse_disk()
+    if not pulse:
+        with st.spinner("Fetching pulse data from public APIs..."):
+            pulse = build_pulse_data(config)
+            if pulse:
+                _save_pulse_disk(pulse)
 
     if not pulse:
         st.info("No pulse data sources returned data. Check API keys and network connectivity.")
