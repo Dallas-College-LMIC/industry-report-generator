@@ -900,7 +900,7 @@ with tab_pulse:
                 if date_col:
                     latest = pd.to_datetime(df[date_col]).max()
                     days_ago = (pd.Timestamp.now() - latest).days
-                    staleness = "⚠️ Stale" if days_ago > 60 else "✅ Fresh"
+                    staleness = "⚠️ Stale" if days_ago > 90 else "✅ Fresh"
                     freshness_data.append(
                         {
                             "Source": label,
