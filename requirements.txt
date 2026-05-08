@@ -1,9 +1,8 @@
-# Streamlit Cloud fallback requirements.
-# The canonical source of truth is pyproject.toml.
-pandas>=2.3.2
-openpyxl>=3.1.5
-xlrd>=2.0.1
-pyghtcast @ git+https://github.com/Dallas-College-LMIC/pyghtcast
-dclmic-export @ git+https://github.com/Dallas-College-LMIC/dclmic-export
-streamlit
+# Auto-generated from pyproject.toml — Streamlit Cloud reads this
+fredapi
+sodapy
+requests
+pandas
+openpyxl
+xlrd
 plotly
