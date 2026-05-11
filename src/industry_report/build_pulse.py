@@ -138,8 +138,10 @@ def compute_key_metrics(pulse: dict[str, pd.DataFrame]) -> dict[str, Any]:
         warn = pulse["warn_notices"]
         cutoff = pd.Timestamp.now() - pd.Timedelta(days=30)
         if "layoff_date" in warn.columns:
+            warn["layoff_date"] = pd.to_datetime(warn["layoff_date"], errors="coerce")
             recent = warn[warn["layoff_date"] >= cutoff]
         elif "notice_date" in warn.columns:
+            warn["notice_date"] = pd.to_datetime(warn["notice_date"], errors="coerce")
             recent = warn[warn["notice_date"] >= cutoff]
         else:
             recent = pd.DataFrame()

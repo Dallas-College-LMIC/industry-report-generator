@@ -515,6 +515,26 @@ class TestComputeKeyMetrics:
         assert metrics["ui_initial_claims"] == 1050
         assert "ui_initial_claims_wow" in metrics
 
+    def test_warn_with_string_dates(self):
+        """Reproduce Streamlit crash: layoff_date as object dtype strings."""
+        pulse = {
+            "warn_notices": pd.DataFrame(
+                {
+                    "company": ["Corp A", "Corp B", "Corp C"],
+                    "county": ["Dallas", "Tarrant", "Collin"],
+                    "layoff_count": [100, 50, 25],
+                    "layoff_date": [
+                        datetime.now().strftime("%Y-%m-%d"),
+                        (datetime.now() - pd.Timedelta(days=5)).strftime("%Y-%m-%d"),
+                        (datetime.now() - pd.Timedelta(days=60)).strftime("%Y-%m-%d"),
+                    ],
+                }
+            )
+        }
+        metrics = compute_key_metrics(pulse)
+        assert metrics["warn_30day_count"] == 2
+        assert metrics["warn_30day_layoffs"] == 150
+
     def test_extracts_warn_30day_count(self):
         pulse = {
             "warn_notices": pd.DataFrame(
