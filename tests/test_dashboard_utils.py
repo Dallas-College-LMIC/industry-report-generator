@@ -9,9 +9,9 @@ import pandas as pd
 
 from industry_report.dashboard_helpers import (
     compute_freshness_rows,
-    format_code_list,
-    prepare_sales_tax_chart,
+    format_code_list_expanded,
     pick_label_column,
+    prepare_sales_tax_chart,
 )
 
 
@@ -122,47 +122,6 @@ class TestComputeFreshnessRows:
 # ---------------------------------------------------------------------------
 # format_code_list
 # ---------------------------------------------------------------------------
-
-
-class TestFormatSidebarCodes:
-    """Tests for the sidebar code display formatter."""
-
-    def test_short_list_shows_all(self):
-        codes = ["6211", "6212", "6213"]
-        result = format_code_list(codes, "NAICS")
-        assert "6211" in result
-        assert "6212" in result
-        assert "6213" in result
-        assert "3 codes" not in result
-
-    def test_long_list_summarizes(self):
-        codes = [str(i) for i in range(20)]
-        result = format_code_list(codes, "NAICS")
-        assert "20 NAICS codes" in result
-        # First few should be shown
-        assert codes[0] in result
-        assert codes[1] in result
-        # Not all codes listed individually
-        assert codes[19] not in result
-
-    def test_empty_list(self):
-        result = format_code_list([], "SOC")
-        assert "0 SOC codes" in result
-
-    def test_with_titles_short(self):
-        codes = ["6211", "6212"]
-        titles = ["Offices of Physicians", "Offices of Dentists"]
-        result = format_code_list(codes, "NAICS", titles)
-        assert "Offices of Physicians" in result
-        assert "Offices of Dentists" in result
-
-    def test_with_titles_long(self):
-        codes = [str(i) for i in range(20)]
-        titles = [f"Title {i}" for i in range(20)]
-        result = format_code_list(codes, "NAICS", titles)
-        assert "20 NAICS codes" in result
-        assert "Title 0" in result
-        assert "Title 19" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -359,3 +318,50 @@ class TestPrepareSheetsForExport:
         assert df["Industry"].dtype == object
         assert df["2026 Jobs"].dtype == "int64"
         assert df["Earnings per Job"].dtype == "float64"
+
+
+# ---------------------------------------------------------------------------
+# format_code_list_expanded
+# ---------------------------------------------------------------------------
+
+
+class TestFormatCodeListExpanded:
+    """Tests for the expanded code list formatter used in sidebar expanders."""
+
+    def test_one_per_line(self):
+
+        codes = ["6211", "6212", "6213"]
+        result = format_code_list_expanded(codes)
+        lines = result.strip().split("\n")
+        assert len(lines) == 3
+        assert lines[0] == "6211"
+        assert lines[1] == "6212"
+        assert lines[2] == "6213"
+
+    def test_with_titles(self):
+
+        codes = ["6211", "6212"]
+        titles = ["Offices of Physicians", "Offices of Dentists"]
+        result = format_code_list_expanded(codes, titles)
+        lines = result.strip().split("\n")
+        assert lines[0] == "6211 – Offices of Physicians"
+        assert lines[1] == "6212 – Offices of Dentists"
+
+    def test_mixed_titles(self):
+
+        codes = ["6211", "6212"]
+        titles = ["Offices of Physicians"]  # only 1 title — should skip mapping
+        result = format_code_list_expanded(codes, titles)
+        lines = result.strip().split("\n")
+        assert lines[0] == "6211"
+        assert lines[1] == "6212"
+
+    def test_empty_list(self):
+
+        result = format_code_list_expanded([])
+        assert result == ""
+
+    def test_single_code(self):
+
+        result = format_code_list_expanded(["6211"], ["Offices of Physicians"])
+        assert result.strip() == "6211 – Offices of Physicians"

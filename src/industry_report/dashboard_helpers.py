@@ -7,39 +7,24 @@ a running Streamlit app.
 import pandas as pd
 
 
-def format_code_list(
+def format_code_list_expanded(
     codes: list[str],
-    label: str,
     titles: list[str] | None = None,
-    max_inline: int = 5,
 ) -> str:
-    """Format a list of codes (with optional titles) for sidebar display.
+    """Format codes as one-per-line string for a sidebar expander.
 
-    Shows up to *max_inline* codes with their titles (if available), then
-    summarises the rest as "… and N more".  Falls back to a simple count
-    when the list is very long.
+    Each line is ``code – title`` when titles are available, or just ``code``
+    otherwise.  Returns an empty string for an empty list.
     """
-    n = len(codes)
-    if n == 0:
-        return f"0 {label} codes"
+    if not codes:
+        return ""
 
-    # Build a lookup from code → title
-    title_map = dict(zip(codes, titles)) if titles and len(titles) == n else {}
-
-    if n <= max_inline:
-        parts = []
-        for c in codes:
-            t = title_map.get(c)
-            parts.append(f"{c} – {t}" if t else str(c))
-        return ", ".join(parts)
-
-    # Long list: show first few then count
-    shown = []
-    for c in codes[:3]:
+    title_map = dict(zip(codes, titles)) if titles and len(titles) == len(codes) else {}
+    lines = []
+    for c in codes:
         t = title_map.get(c)
-        shown.append(f"{c} – {t}" if t else str(c))
-    remaining = n - 3
-    return ", ".join(shown) + f", … and {remaining} more ({n} {label} codes total)"
+        lines.append(f"{c} – {t}" if t else str(c))
+    return "\n".join(lines)
 
 
 def compute_freshness_rows(pulse: dict) -> list[dict]:

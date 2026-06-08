@@ -27,7 +27,7 @@ from industry_report.build import build_all_sheets  # noqa: E402
 from industry_report.config import load_config  # noqa: E402
 from industry_report.dashboard_helpers import (  # noqa: E402
     compute_freshness_rows,
-    format_code_list,
+    format_code_list_expanded,
     pick_label_column,
     prepare_sales_tax_chart,
 )
@@ -73,10 +73,15 @@ config = load_config(selected_path)
 st.sidebar.markdown("---")
 st.sidebar.write(f"**Industry:** {config.name}")
 st.sidebar.write(f"**Region:** {config.msa_name}")
-st.sidebar.write(
-    f"**NAICS codes:** {format_code_list(config.naics_codes, 'NAICS', config.naics_titles)}"
-)
-st.sidebar.write(f"**SOC codes:** {format_code_list(config.soc_codes, 'SOC', config.soc_titles)}")
+
+st.sidebar.write(f"**NAICS codes:** {len(config.naics_codes)}")
+with st.sidebar.expander("Show NAICS codes"):
+    st.text(format_code_list_expanded(config.naics_codes, config.naics_titles))
+
+st.sidebar.write(f"**SOC codes:** {len(config.soc_codes)}")
+with st.sidebar.expander("Show SOC codes"):
+    st.text(format_code_list_expanded(config.soc_codes, config.soc_titles))
+
 st.sidebar.markdown("---")
 
 # ---------------------------------------------------------------------------
