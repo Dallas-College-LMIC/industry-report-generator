@@ -892,18 +892,6 @@ with tab_pulse:
         # Data freshness
         # ----------------------------------------------------------------
         st.subheader("🕐 Data Freshness")
-        freshness_data = []
-        source_labels = {
-            "ui_claims": "UI Claims (FRED)",
-            "warn_notices": "WARN Notices (Socrata)",
-            "dallas_fed": "Dallas Fed Surveys (FRED)",
-            "sales_tax": "Sales Tax (Socrata)",
-            "bfs": "Business Formation (Census/FRED)",
-            "bls_employment": "BLS Employment (BLS/FRED)",
-            "jpa_totals": "Job Postings (Lightcast JPA)",
-            "jpa_skills": "Job Posting Skills (Lightcast JPA)",
-            "jpa_employers": "Job Posting Employers (Lightcast JPA)",
-        }
         freshness_data = compute_freshness_rows(pulse)
 
         if freshness_data:

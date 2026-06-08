@@ -83,33 +83,55 @@ class TestComputeFreshnessRows:
         rows = compute_freshness_rows(pulse_dict_with_future_dates)
         assert rows[0]["Status"] == "📅 Upcoming"
 
-    def test_stale_detection(self):
-        """Data > 90 days old should be marked Stale."""
-        old_date = pd.Timestamp.now() - pd.Timedelta(days=120)
+    def test_warn_notices_key_matched(self):
+        """WARN notices use 'warn_notices' key in pulse dict."""
+        recent = pd.Timestamp.now() - pd.Timedelta(days=5)
         pulse = {
-            "ui_claims": pd.DataFrame(
+            "warn_notices": pd.DataFrame(
                 {
-                    "date": [old_date],
-                    "value": [100],
+                    "notice_date": [recent],
+                    "company": ["Acme Corp"],
                 }
             ),
         }
+        rows = compute_freshness_rows(pulse)
+        assert len(rows) == 1
+        assert rows[0]["Source"] == "WARN Notices (Socrata)"
+
+    def test_ui_claims_stale_after_14_days(self):
+        """Weekly sources should be stale after 14 days."""
+        old = pd.Timestamp.now() - pd.Timedelta(days=15)
+        pulse = {"ui_claims": pd.DataFrame({"date": [old], "value": [100]})}
         rows = compute_freshness_rows(pulse)
         assert rows[0]["Status"] == "⚠️ Stale"
 
-    def test_fresh_detection(self):
-        """Data < 90 days old should be marked Fresh."""
+    def test_ui_claims_fresh_at_10_days(self):
+        """Weekly sources should still be fresh at 10 days."""
         recent = pd.Timestamp.now() - pd.Timedelta(days=10)
-        pulse = {
-            "ui_claims": pd.DataFrame(
-                {
-                    "date": [recent],
-                    "value": [100],
-                }
-            ),
-        }
+        pulse = {"ui_claims": pd.DataFrame({"date": [recent], "value": [100]})}
         rows = compute_freshness_rows(pulse)
         assert rows[0]["Status"] == "✅ Fresh"
+
+    def test_bls_stale_after_45_days(self):
+        """Monthly sources should be stale after 45 days."""
+        old = pd.Timestamp.now() - pd.Timedelta(days=50)
+        pulse = {"bls_employment": pd.DataFrame({"date": [old], "value": [100]})}
+        rows = compute_freshness_rows(pulse)
+        assert rows[0]["Status"] == "⚠️ Stale"
+
+    def test_bls_fresh_at_30_days(self):
+        """Monthly sources should still be fresh at 30 days."""
+        recent = pd.Timestamp.now() - pd.Timedelta(days=30)
+        pulse = {"bls_employment": pd.DataFrame({"date": [recent], "value": [100]})}
+        rows = compute_freshness_rows(pulse)
+        assert rows[0]["Status"] == "✅ Fresh"
+
+    def test_warn_stale_after_14_days(self):
+        """WARN notices (daily source) should be stale after 14 days."""
+        old = pd.Timestamp.now() - pd.Timedelta(days=20)
+        pulse = {"warn_notices": pd.DataFrame({"notice_date": [old], "company": ["X"]})}
+        rows = compute_freshness_rows(pulse)
+        assert rows[0]["Status"] == "⚠️ Stale"
 
     def test_skips_sources_without_date_column(self):
         pulse = {

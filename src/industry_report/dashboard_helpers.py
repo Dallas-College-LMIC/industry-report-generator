@@ -31,25 +31,33 @@ def compute_freshness_rows(pulse: dict) -> list[dict]:
     """Build freshness table rows from a pulse data dict.
 
     Clamps negative "days ago" to 0 for future release dates and shows
-    a "📅 Upcoming" status instead of a negative number.
+    a "📅 Upcoming" status instead of a negative number.  Uses
+    source-specific staleness thresholds based on update cadence.
     """
-    source_labels = {
-        "ui_claims": "UI Claims (FRED)",
-        "dallas_fed": "Dallas Fed Surveys (FRED)",
-        "warn": "WARN Notices (Socrata)",
-        "sales_tax": "Sales Tax (Socrata)",
-        "bls_employment": "BLS Employment (BLS/FRED)",
-        "bfs": "Business Formation (FRED/Census)",
-        "jpa_totals": "Job Postings (Lightcast JPA)",
-        "jpa_skills": "Job Posting Skills (Lightcast JPA)",
-        "jpa_employers": "Job Posting Employers (Lightcast JPA)",
+    # source key → (display label, stale threshold in days, date column name)
+    source_meta = {
+        "ui_claims": ("UI Claims (FRED)", 14, None),
+        "warn_notices": ("WARN Notices (Socrata)", 14, "notice_date"),
+        "dallas_fed": ("Dallas Fed Surveys (FRED)", 45, None),
+        "sales_tax": ("Sales Tax (Socrata)", 45, None),
+        "bls_employment": ("BLS Employment (BLS/FRED)", 45, None),
+        "bfs": ("Business Formation (FRED/Census)", 45, None),
+        "jpa_totals": ("Job Postings (Lightcast JPA)", 45, None),
+        "jpa_skills": ("Job Posting Skills (Lightcast JPA)", 45, None),
+        "jpa_employers": ("Job Posting Employers (Lightcast JPA)", 45, None),
     }
     rows: list[dict] = []
-    for key, label in source_labels.items():
+    for key, (label, stale_days, date_override) in source_meta.items():
         if key not in pulse:
             continue
         df = pulse[key]
-        date_col = "date" if "date" in df.columns else "month" if "month" in df.columns else None
+        # Use override date column, or auto-detect
+        if date_override and date_override in df.columns:
+            date_col = date_override
+        else:
+            date_col = (
+                "date" if "date" in df.columns else "month" if "month" in df.columns else None
+            )
         if not date_col:
             continue
         latest = pd.to_datetime(df[date_col]).max()
@@ -57,7 +65,7 @@ def compute_freshness_rows(pulse: dict) -> list[dict]:
         days_ago = max(delta.days, 0)  # clamp negatives to 0
         if delta.days < 0:
             staleness = "📅 Upcoming"
-        elif days_ago > 90:
+        elif days_ago > stale_days:
             staleness = "⚠️ Stale"
         else:
             staleness = "✅ Fresh"
