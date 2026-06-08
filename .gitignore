@@ -7,3 +7,5 @@ output/
 .envrc
 uv.lock
 configs/*/.cache/
+reference/
+scripts/
