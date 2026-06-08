@@ -25,6 +25,12 @@ import streamlit as st  # noqa: E402
 
 from industry_report.build import build_all_sheets  # noqa: E402
 from industry_report.config import load_config  # noqa: E402
+from industry_report.dashboard_helpers import (  # noqa: E402
+    compute_freshness_rows,
+    format_code_list,
+    pick_label_column,
+    prepare_sales_tax_chart,
+)
 from industry_report.export import export_workbook  # noqa: E402
 
 # Surface Streamlit Cloud secrets as env vars so fetchers can find them.
@@ -67,8 +73,10 @@ config = load_config(selected_path)
 st.sidebar.markdown("---")
 st.sidebar.write(f"**Industry:** {config.name}")
 st.sidebar.write(f"**Region:** {config.msa_name}")
-st.sidebar.write(f"**NAICS codes:** {len(config.naics_codes)}")
-st.sidebar.write(f"**SOC codes:** {len(config.soc_codes)}")
+st.sidebar.write(
+    f"**NAICS codes:** {format_code_list(config.naics_codes, 'NAICS', config.naics_titles)}"
+)
+st.sidebar.write(f"**SOC codes:** {format_code_list(config.soc_codes, 'SOC', config.soc_titles)}")
 st.sidebar.markdown("---")
 
 # ---------------------------------------------------------------------------
@@ -97,9 +105,24 @@ with tab_msa:
         col_refresh, col_spacer = st.columns([1, 4])
         refresh = col_refresh.button("🔄 Refresh from Lightcast", type="secondary")
     else:
-        refresh = st.button(
-            "🔄 Generate Report from Lightcast", type="primary", use_container_width=True
-        )
+        # No cache — fetch automatically on page load
+        refresh = False
+        with st.spinner("Fetching data from Lightcast APIs..."):
+            try:
+                fresh_sheets = build_all_sheets(config)
+            except Exception as e:
+                st.error(f"Failed to build report: {e}")
+                fresh_sheets = None
+
+        if fresh_sheets:
+            sheets = fresh_sheets
+            save_sheets_cache(config, sheets)
+            st.success(f"Built {len(sheets)} sheets and cached for next visit.")
+        else:
+            st.error(
+                "No data could be fetched. Check API credentials and/or manual input file paths."
+            )
+            st.stop()
 
     if refresh:
         with st.spinner("Fetching data from Lightcast APIs..."):
@@ -125,12 +148,6 @@ with tab_msa:
                     st.warning(f"Showing stale cache ({len(stale)} sheets).")
                 else:
                     st.stop()
-
-    if not sheets:
-        st.info(
-            "Select a config from the sidebar and click **Generate Report from Lightcast** to begin."
-        )
-        st.stop()
 
     # -------------------------------------------------------------------
     # Quick metrics (if available)
@@ -169,9 +186,7 @@ with tab_msa:
     if "Notable Occupations" in sheets:
         occ_df = sheets["Notable Occupations"].copy()
 
-        occ_label_col = next(
-            (c for c in occ_df.columns if c in ("Occupation", "SOC")), occ_df.columns[0]
-        )
+        occ_label_col = pick_label_column(occ_df)
         wage_col = next((c for c in occ_df.columns if "Median Hourly Wage" in c), None)
 
         if wage_col and occ_label_col:
@@ -378,81 +393,8 @@ with tab_zip:
         st.write(f"Built {len(zip_sheets)} ZIP-level sheets from cached CSVs.")
 
         # -------------------------------------------------------------------
-        # ZIP-level choropleth map
-        # -------------------------------------------------------------------
-        st.subheader("🗺️ ZIP-Level Map")
-
-        # Try to build a choropleth from available data
-        map_df = None
-        map_value_col = None
-
-        if "ZIP Industry Detail" in zip_sheets:
-            ind = zip_sheets["ZIP Industry Detail"]
-            if "ZIP Code" in ind.columns and "Industry Jobs 2026" in ind.columns:
-                map_df = ind[["ZIP Code", "Industry Jobs 2026"]].copy()
-                map_value_col = "Industry Jobs 2026"
-        elif "ZIP Occupation Detail" in zip_sheets:
-            occ = zip_sheets["ZIP Occupation Detail"]
-            if "ZIP Code" in occ.columns and "Occupation Jobs 2026" in occ.columns:
-                map_df = occ[["ZIP Code", "Occupation Jobs 2026"]].copy()
-                map_value_col = "Occupation Jobs 2026"
-
-        if map_df is not None and map_value_col:
-            # Let user choose metric
-            metric_options = {}
-            for sheet_name, df in zip_sheets.items():
-                if "ZIP Code" in df.columns:
-                    for col in df.columns:
-                        if (
-                            df[col].dtype in ("float64", "int64", "Float64", "Int64")
-                            and col != "ZIP Code"
-                        ):
-                            metric_options[f"{sheet_name}: {col}"] = (sheet_name, col)
-
-            if metric_options:
-                selected_metric = st.selectbox(
-                    "Choose metric to map",
-                    list(metric_options.keys()),
-                    index=0,
-                )
-                chosen_sheet, chosen_col = metric_options[selected_metric]
-                map_df = zip_sheets[chosen_sheet][["ZIP Code", chosen_col]].copy()
-                map_value_col = chosen_col
-
-            # NOTE: plotly doesn't support USA-zip locationmode natively.
-            # Using a bar chart as a reliable ZIP-level visualization.
-            fig = px.bar(
-                map_df.nlargest(25, map_value_col).sort_values(map_value_col),
-                x=map_value_col,
-                y="ZIP Code",
-                orientation="h",
-                title=f"Top 25 ZIP Codes by {map_value_col}",
-                color=map_value_col,
-                color_continuous_scale="Blues",
-            )
-            fig.update_layout(height=600, showlegend=False)
-            st.plotly_chart(fig, use_container_width=True)
-
-        # -------------------------------------------------------------------
-        # Quick ZIP metrics
-        # -------------------------------------------------------------------
-        if "ZIP Industry Detail" in zip_sheets:
-            ind = zip_sheets["ZIP Industry Detail"]
-            zip_cols = st.columns(3)
-            jobs_col = "Industry Jobs 2026" if "Industry Jobs 2026" in ind.columns else None
-            if jobs_col:
-                zip_cols[0].metric("Total ZIPs", f"{len(ind):,}")
-                zip_cols[1].metric("Total Industry Jobs", f"{int(ind[jobs_col].sum()):,}")
-                if "Avg Earnings per Job ($)" in ind.columns:
-                    avg_earn = ind["Avg Earnings per Job ($)"].mean()
-                    zip_cols[2].metric("Avg Earnings/Job", f"${avg_earn:,.0f}")
-
-        st.markdown("---")
-
-        # -------------------------------------------------------------------
         # ZIP data tables
         # -------------------------------------------------------------------
-        st.subheader("📋 ZIP-Level Sheets")
         for sheet_name, df in zip_sheets.items():
             with st.expander(f"{sheet_name}  ({len(df)} rows)"):
                 st.dataframe(df, use_container_width=True, hide_index=True)
@@ -749,10 +691,10 @@ with tab_pulse:
 
             # Sales tax allocations by county
             if "sales_tax" in pulse:
-                stax = pulse["sales_tax"]
-                if "county" in stax.columns and not stax.empty:
+                stax_prepped = prepare_sales_tax_chart(pulse["sales_tax"])
+                if stax_prepped is not None:
                     fig_st = px.line(
-                        stax,
+                        stax_prepped,
                         x="date",
                         y="value",
                         color="county",
@@ -957,24 +899,7 @@ with tab_pulse:
             "jpa_skills": "Job Posting Skills (Lightcast JPA)",
             "jpa_employers": "Job Posting Employers (Lightcast JPA)",
         }
-        for key, label in source_labels.items():
-            if key in pulse:
-                df = pulse[key]
-                date_col = (
-                    "date" if "date" in df.columns else "month" if "month" in df.columns else None
-                )
-                if date_col:
-                    latest = pd.to_datetime(df[date_col]).max()
-                    days_ago = (pd.Timestamp.now() - latest).days
-                    staleness = "⚠️ Stale" if days_ago > 90 else "✅ Fresh"
-                    freshness_data.append(
-                        {
-                            "Source": label,
-                            "Latest Data": latest.strftime("%Y-%m-%d"),
-                            "Days Ago": days_ago,
-                            "Status": staleness,
-                        }
-                    )
+        freshness_data = compute_freshness_rows(pulse)
 
         if freshness_data:
             st.dataframe(

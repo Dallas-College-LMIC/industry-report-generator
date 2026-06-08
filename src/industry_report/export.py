@@ -7,6 +7,7 @@ import dclmic_export
 import pandas as pd
 
 from .config import ReportConfig
+from .dashboard_helpers import prepare_sheets_for_export
 
 # Column formatting rules per sheet
 COL_FORMAT = {
@@ -61,6 +62,10 @@ def export_workbook(frames: OrderedDict[str, pd.DataFrame], config: ReportConfig
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
     output_path = config.output_dir / f"{config.name.replace(' ', '_')}_Report_Data.xlsx"
+
+    # Cast code columns (NAICS, SOC, ZIP) to text so Excel doesn't
+    # format them as numbers with thousands separators.
+    frames = prepare_sheets_for_export(frames)
 
     output_dir_str = str(config.output_dir)
     if not output_dir_str.endswith("/"):
